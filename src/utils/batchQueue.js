@@ -29,88 +29,44 @@
 
 function getAPI() { return window.electronAPI; }
 
-// ── Image pool helpers ────────────────────────────────────────────────────
-// Deduplicates base64 images across batch items so each unique image is
-// stored once, referenced by a short key. Reduces payload size by ~N× when
-// model/bg/pose images are shared across many shots.
-
-function poolEncode(items) {
-  const pool = {};   // key → base64
-  const counter = { n: 0 };
-  function intern(b64) {
-    if (!b64 || !b64.startsWith('data:')) return b64;
-    // Use first 64 chars as a fast fingerprint (unique enough for our sizes)
-    const fp = b64.slice(0, 64);
-    if (!pool[fp]) { pool[fp] = { key: '__img' + (counter.n++), data: b64 }; }
-    return pool[fp].key;
-  }
-  const compressed = items.map(item => ({
-    ...item,
-    images: Array.isArray(item.images) ? item.images.map(intern) : item.images,
-  }));
-  const imagePool = {};
-  Object.values(pool).forEach(({ key, data }) => { imagePool[key] = data; });
-  return { items: compressed, imagePool };
-}
-
-function poolDecode(stored) {
-  if (!stored || !stored._pooled) return stored; // legacy format
-  const { items, imagePool } = stored;
-  return items.map(item => ({
-    ...item,
-    images: Array.isArray(item.images)
-      ? item.images.map(ref => imagePool[ref] ?? ref)
-      : item.images,
-  }));
-}
+// ── In-memory queue (lives in the browser, no server calls) ───────────────
+// The queue is session data — it doesn't need to survive a page refresh.
+// Keeping it in memory avoids sending 100MB+ of base64 images to the server.
+let _queue = [];
 
 // ── Queue ─────────────────────────────────────────────────────────────────
 
 export async function getBatchQueue() {
-  try {
-    const raw = await getAPI().storeGet('batchQueue');
-    if (!raw) return [];
-    return poolDecode(raw);
-  }
-  catch (e) { return []; }
+  return _queue;
 }
 
 export async function addToBatchQueue(item) {
-  const queue = await getBatchQueue();
   const newItem = {
     ...item,
     id: 'bq_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
     createdAt: new Date().toISOString(),
   };
-  queue.push(newItem);
-  const { items, imagePool } = poolEncode(queue);
-  await getAPI().storeSet('batchQueue', { _pooled: true, items, imagePool });
+  _queue = [..._queue, newItem];
   return newItem;
 }
 
 export async function addManyToBatchQueue(items) {
-  const existing = await getBatchQueue();
   const stamped = items.map(item => ({
     ...item,
     id: 'bq_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
     createdAt: new Date().toISOString(),
   }));
-  const all = [...existing, ...stamped];
-  const { items: compressed, imagePool } = poolEncode(all);
-  await getAPI().storeSet('batchQueue', { _pooled: true, items: compressed, imagePool });
-  return all;
+  _queue = [..._queue, ...stamped];
+  return _queue;
 }
 
 export async function removeFromBatchQueue(id) {
-  const queue = await getBatchQueue();
-  const updated = queue.filter(item => item.id !== id);
-  const { items, imagePool } = poolEncode(updated);
-  await getAPI().storeSet('batchQueue', { _pooled: true, items, imagePool });
-  return updated;
+  _queue = _queue.filter(item => item.id !== id);
+  return _queue;
 }
 
 export async function clearBatchQueue() {
-  await getAPI().storeSet('batchQueue', []);
+  _queue = [];
 }
 
 // ── Jobs ──────────────────────────────────────────────────────────────────
