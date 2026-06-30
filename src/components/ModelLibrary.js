@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getModels, saveModel, deleteModel, generateId } from '../utils/storage';
 
-const BODY_TYPES = ['Hourglass', 'Pear', 'Apple', 'Rectangle', 'Custom'];
-
 export default function ModelLibrary({ isAdmin }) {
   const [models, setModels] = useState([]);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -54,7 +52,6 @@ export default function ModelLibrary({ isAdmin }) {
                 )}
                 <div className="image-card-info">
                   <div className="image-card-name">{model.name}</div>
-                  {model.bodyType && <span className="image-card-tag">{model.bodyType}</span>}
                 </div>
                 <div className="image-card-actions">
                   <button className="icon-btn icon-btn-danger" onClick={() => handleDelete(model)}>🗑</button>
@@ -67,11 +64,9 @@ export default function ModelLibrary({ isAdmin }) {
 
       {showUploadModal && (
         <BulkUploadModal
-          type="model"
-          prefix="Model"
+          prefix="model"
           icon="📷"
           existingCount={models.length}
-          bodyTypes={BODY_TYPES}
           onClose={() => setShowUploadModal(false)}
           onSave={async (items) => {
             let updated = models;
@@ -87,9 +82,8 @@ export default function ModelLibrary({ isAdmin }) {
   );
 }
 
-function BulkUploadModal({ type, prefix, icon, existingCount, bodyTypes, onClose, onSave }) {
-  const [files, setFiles] = useState([]); // [{ name, base64 }]
-  const [bodyType, setBodyType] = useState('Hourglass');
+function BulkUploadModal({ prefix, icon, existingCount, onClose, onSave }) {
+  const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
 
   function handleFilePick(e) {
@@ -134,11 +128,7 @@ function BulkUploadModal({ type, prefix, icon, existingCount, bodyTypes, onClose
     if (!files.length) return;
     setSaving(true);
     try {
-      const items = files.map(f => bodyTypes
-        ? { name: f.name, base64: f.base64, bodyType }
-        : { name: f.name, base64: f.base64 }
-      );
-      await onSave(items);
+      await onSave(files);
     } catch (e) { alert('Error: ' + e.message); }
     setSaving(false);
   }
@@ -150,15 +140,6 @@ function BulkUploadModal({ type, prefix, icon, existingCount, bodyTypes, onClose
           <span className="modal-title">Upload {prefix}s</span>
           <button className="modal-close" onClick={onClose}>×</button>
         </div>
-
-        {bodyTypes && (
-          <div className="form-group" style={{ marginBottom: 16 }}>
-            <label className="form-label">Body Type (applies to all)</label>
-            <select className="form-select" value={bodyType} onChange={e => setBodyType(e.target.value)}>
-              {bodyTypes.map(t => <option key={t}>{t}</option>)}
-            </select>
-          </div>
-        )}
 
         <label style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
