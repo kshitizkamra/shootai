@@ -37,7 +37,6 @@ app.use((req, res, next) => {
 });
 
 const BUILD_DIR = path.join(__dirname, '..', 'build');
-if (fs.existsSync(BUILD_DIR)) app.use(express.static(BUILD_DIR));
 
 // ── File helpers ───────────────────────────────────────────────────────────
 
@@ -624,11 +623,23 @@ app.post('/api/ai/gemini-batch-cancel', requireAuth, async (req, res) => {
   }
 });
 
-// ── React catch-all ────────────────────────────────────────────────────────
+// ── Static files + React catch-all (AFTER all API routes) ─────────────────
 
 if (fs.existsSync(BUILD_DIR)) {
+  app.use(express.static(BUILD_DIR));
   app.get('*', (req, res) => res.sendFile(path.join(BUILD_DIR, 'index.html')));
 }
+
+// ── JSON 404 / error fallback ──────────────────────────────────────────────
+
+app.use((req, res) => {
+  res.status(404).json({ error: `Cannot ${req.method} ${req.path}` });
+});
+
+app.use((err, req, res, next) => {
+  console.error('Server error:', err.message);
+  res.status(500).json({ error: err.message });
+});
 
 // ── Start ──────────────────────────────────────────────────────────────────
 
