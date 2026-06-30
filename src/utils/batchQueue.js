@@ -48,6 +48,19 @@ export async function addToBatchQueue(item) {
   return newItem;
 }
 
+export async function addManyToBatchQueue(items) {
+  const queue = await getBatchQueue();
+  for (const item of items) {
+    queue.push({
+      ...item,
+      id: 'bq_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      createdAt: new Date().toISOString(),
+    });
+  }
+  await getAPI().storeSet('batchQueue', queue);
+  return queue;
+}
+
 export async function removeFromBatchQueue(id) {
   const queue = await getBatchQueue();
   const updated = queue.filter(item => item.id !== id);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getModels, getBackgrounds, getPoses, addHistoryEntry, getSettings, saveSettings } from '../utils/storage';
 import { generatePDPShotE, prepareBatchPDPShotE } from '../utils/api';
-import { addToBatchQueue } from '../utils/batchQueue';
+import { addManyToBatchQueue } from '../utils/batchQueue';
 import GenerationOptions from './GenerationOptions';
 import { getResolution } from '../utils/constants';
 
@@ -294,24 +294,27 @@ export default function WorkflowE({ onBack, onNavigate }) {
     const modelBase64 = selectedModel.base64;
     const bgBase64Raw = selectedBg?.base64 || null;
     const poseBase64 = selectedPose?.base64 || null;
-    let count = 0;
 
-    for (const product of vp) {
+    // Fetch settings once — avoids one HTTP call per item
+    const _settings = await getSettings();
+
+    // Pre-crop panoramic backgrounds for each shot index (async, upfront)
+    const bgCrops = bgBase64Raw && bgIsPanoramic
+      ? await Promise.all(spreadOffsets(shots.length).map(off => cropToPotrait(bgBase64Raw, off)))
+      : null;
+
+    // Build all items in parallel (prepareBatchPDPShotE is now sync when _settings provided)
+    const allItems = await Promise.all(vp.flatMap(product => {
       const category = product.category || 'full_outfit';
       const productImages = product.images.map(img => img.base64);
-      const offsets = bgBase64Raw && bgIsPanoramic ? spreadOffsets(shots.length) : null;
-
-      for (let si = 0; si < shots.length; si++) {
-        const shot = shots[si];
+      return shots.map(async (shot, si) => {
         const isDetail = shot.startsWith('Detail Close-Up');
         const shotType = isDetail ? 'Detail Close-Up' : shot;
         const detailIdx = isDetail && detailNotes.length > 1
           ? parseInt(shot.replace('Detail Close-Up ', '')) - 1 : 0;
         const detailNote = isDetail ? (detailNotes[detailIdx] || detailNotes[0] || '') : '';
-        let bgBase64 = bgBase64Raw;
-        if (bgBase64Raw && bgIsPanoramic && offsets) bgBase64 = await cropToPotrait(bgBase64Raw, offsets[si]);
-
-        const item = await prepareBatchPDPShotE({
+        const bgBase64 = bgCrops ? bgCrops[si] : bgBase64Raw;
+        return prepareBatchPDPShotE({
           modelImageBase64: modelBase64,
           productImagesBase64: productImages,
           backgroundImageBase64: bgBase64,
@@ -323,12 +326,14 @@ export default function WorkflowE({ onBack, onNavigate }) {
           quality: 'low', resolution,
           label: `PDP-E — ${product.name} — ${shot}`,
           meta: { model: selectedModel?.name || 'Unknown', background: selectedBg?.name || 'Unknown', category },
+          _settings,
         });
-        await addToBatchQueue(item);
-        count++;
-      }
-    }
-    setBatchAdded(count);
+      });
+    }));
+
+    // Single storeGet + storeSet for all items
+    await addManyToBatchQueue(allItems);
+    setBatchAdded(allItems.length);
     setTimeout(() => setBatchAdded(0), 3000);
     if (onNavigate) onNavigate('batch');
   }

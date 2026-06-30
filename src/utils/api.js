@@ -523,8 +523,8 @@ Premium D2C fashion brand photography quality.
   return await api.multiImageGenerate({ apiKey, images, prompt, quality: q, size: sz });
 }
 
-export async function prepareBatchPDPShotE({ modelImageBase64, productImagesBase64, backgroundImageBase64, poseImageBase64, shotType, productName, category, modelBodyType, modelDescription, detailNote, globalInstruction, shotInstruction, quality, resolution, label, model: modelOverride }) {
-  const settings = await getSettings();
+export async function prepareBatchPDPShotE({ modelImageBase64, productImagesBase64, backgroundImageBase64, poseImageBase64, shotType, productName, category, modelBodyType, modelDescription, detailNote, globalInstruction, shotInstruction, quality, resolution, label, model: modelOverride, _settings }) {
+  const settings = _settings || await getSettings();
   const model = modelOverride || settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
   const effectivePose = (shotType === 'Styled' && !shotInstruction) ? poseImageBase64 : null;
 
