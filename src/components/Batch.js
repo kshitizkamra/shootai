@@ -63,6 +63,7 @@ export default function Batch() {
       if (hasActiveRef.current) pollAllJobs();
     }, 30000);
     return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function pollAllJobs() {
@@ -166,7 +167,7 @@ export default function Batch() {
       const label = (job.itemLabels && job.itemLabels[resultIdx]) || `batch_${resultIdx}`;
       const resolution = (job.resolutions && job.resolutions[resultIdx]) || '1080x1440';
       const res = getResolution(resolution);
-      const cleanName = label.replace(/[^a-zA-Z0-9_\-]/g, '_');
+      const cleanName = label.replace(/[^a-zA-Z0-9_-]/g, '_');
       const filePath = await saveToOutput(job.results[resultIdx], cleanName, 'batch', 'Batch', res);
       const updatedPaths = [...(job.savedPaths || [])];
       updatedPaths[resultIdx] = filePath;
@@ -190,7 +191,7 @@ export default function Batch() {
           const label = (job.itemLabels && job.itemLabels[i]) || `batch_${i}`;
           const resolution = (job.resolutions && job.resolutions[i]) || '1080x1440';
           const res = getResolution(resolution);
-          const cleanName = label.replace(/[^a-zA-Z0-9_\-]/g, '_');
+          const cleanName = label.replace(/[^a-zA-Z0-9_-]/g, '_');
           updatedPaths[i] = await saveToOutput(job.results[i], cleanName, 'batch', 'Batch', res);
         } catch (e) {
           setError('Save failed: ' + e.message);
