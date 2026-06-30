@@ -299,6 +299,51 @@ app.get('/api/admin/stats', requireAdmin, (req, res) => {
   });
 });
 
+// ── Backup / Restore ───────────────────────────────────────────────────────
+
+app.get('/api/admin/backup', requireAdmin, (req, res) => {
+  try {
+    const backup = { version: 1, exportedAt: new Date().toISOString(), files: {} };
+
+    function collectDir(dir, base) {
+      if (!fs.existsSync(dir)) return;
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const fullPath = path.join(dir, entry.name);
+        const relPath = base ? `${base}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) {
+          collectDir(fullPath, relPath);
+        } else if (entry.name.endsWith('.json')) {
+          try { backup.files[relPath] = JSON.parse(fs.readFileSync(fullPath, 'utf8')); } catch {}
+        }
+      }
+    }
+
+    collectDir(DATA_DIR, '');
+    const filename = `shootai-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Type', 'application/json');
+    res.send(JSON.stringify(backup, null, 2));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/admin/restore', requireAdmin, (req, res) => {
+  try {
+    const { version, files } = req.body;
+    if (!files || typeof files !== 'object') return res.status(400).json({ error: 'Invalid backup format.' });
+
+    let restored = 0;
+    for (const [relPath, data] of Object.entries(files)) {
+      // Safety: only allow .json files inside data dir, no path traversal
+      if (!relPath.endsWith('.json') || relPath.includes('..')) continue;
+      const fullPath = path.join(DATA_DIR, relPath);
+      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+      fs.writeFileSync(fullPath, JSON.stringify(data, null, 2));
+      restored++;
+    }
+    res.json({ ok: true, restored });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── Store routes ───────────────────────────────────────────────────────────
 
 app.get('/api/store/:key', requireAuth, requireActive, (req, res) => {

@@ -99,7 +99,7 @@ export default function AdminPanel() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 2, padding: '0 24px', borderBottom: '1px solid var(--gray-200)' }}>
-        {[['dashboard', '📊 Dashboard'], ['users', '👥 Users'], ['apikeys', '🔑 API Keys']].map(([id, label]) => (
+        {[['dashboard', '📊 Dashboard'], ['users', '👥 Users'], ['apikeys', '🔑 API Keys'], ['backup', '💾 Backup']].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{
             padding: '10px 20px', border: 'none', background: 'none', cursor: 'pointer',
             fontWeight: tab === id ? 600 : 400, fontSize: 13,
@@ -123,8 +123,10 @@ export default function AdminPanel() {
             onDisable={handleDisable}
             onEnable={handleEnable}
           />
-        ) : (
+        ) : tab === 'apikeys' ? (
           <ApiKeysTab apiKeys={apiKeys} setApiKeys={setApiKeys} onSave={handleSaveKeys} saving={saving} />
+        ) : (
+          <BackupTab />
         )}
       </div>
 
@@ -350,6 +352,114 @@ function ApiKeysTab({ apiKeys, setApiKeys, onSave, saving }) {
         <button className="btn btn-primary" onClick={onSave} disabled={saving}>
           {saving ? <><span className="spinner" /> Saving…</> : 'Save API Keys'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function BackupTab() {
+  const [restoring, setRestoring] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [msgType, setMsgType] = useState('info');
+
+  function showMsg(text, type = 'info') {
+    setMsg(text);
+    setMsgType(type);
+    setTimeout(() => setMsg(''), 5000);
+  }
+
+  async function handleBackup() {
+    try {
+      const token = localStorage.getItem('shootai_token');
+      const res = await fetch(`${process.env.REACT_APP_SERVER_URL || ''}/api/admin/backup`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) { showMsg('Backup failed.', 'error'); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `shootai-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showMsg('✅ Backup downloaded successfully.');
+    } catch (e) { showMsg('Backup failed: ' + e.message, 'error'); }
+  }
+
+  async function handleRestore(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!window.confirm('This will overwrite all current data (users, credits, libraries). Are you sure?')) {
+      e.target.value = '';
+      return;
+    }
+    setRestoring(true);
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+      const token = localStorage.getItem('shootai_token');
+      const res = await fetch(`${process.env.REACT_APP_SERVER_URL || ''}/api/admin/restore`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(backup),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      showMsg(`✅ Restored ${data.restored} files successfully. Reload the page to see updated data.`);
+    } catch (e) { showMsg('Restore failed: ' + e.message, 'error'); }
+    setRestoring(false);
+    e.target.value = '';
+  }
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8, color: 'var(--navy)' }}>Data Backup & Restore</h2>
+      <p style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 24, lineHeight: 1.6 }}>
+        Render's free tier resets all data on every deployment. <strong>Before deploying any update</strong>,
+        download a backup. After the deploy completes, restore it here.
+      </p>
+
+      {msg && (
+        <div className={`alert alert-${msgType === 'error' ? 'error' : 'info'}`} style={{ marginBottom: 20, fontSize: 13 }}>
+          {msg}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Backup */}
+        <div style={{ border: '1px solid var(--gray-200)', borderRadius: 12, padding: 20 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>📥 Step 1 — Download Backup</div>
+          <p style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 14 }}>
+            Downloads all users, credits, libraries, and settings as a single JSON file. Do this before every deployment.
+          </p>
+          <button className="btn btn-primary" onClick={handleBackup}>
+            Download Backup
+          </button>
+        </div>
+
+        {/* Restore */}
+        <div style={{ border: '1px solid var(--gray-200)', borderRadius: 12, padding: 20 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>📤 Step 2 — Restore After Deploy</div>
+          <p style={{ fontSize: 13, color: 'var(--gray-600)', marginBottom: 14 }}>
+            After the new version deploys, upload your backup file here to restore all data.
+            <strong style={{ color: 'var(--red)' }}> This overwrites current server data.</strong>
+          </p>
+          <label className="btn btn-outline" style={{ cursor: 'pointer' }}>
+            {restoring ? <><span className="spinner" /> Restoring…</> : 'Choose Backup File…'}
+            <input type="file" accept=".json" style={{ display: 'none' }} onChange={handleRestore} disabled={restoring} />
+          </label>
+        </div>
+
+        {/* Reminder */}
+        <div style={{ background: 'var(--gold-light, #fff8e7)', border: '1px solid #f0d060', borderRadius: 12, padding: 16, fontSize: 13, color: '#7a5c00' }}>
+          <strong>⚠️ Deployment checklist</strong>
+          <ol style={{ margin: '8px 0 0 16px', lineHeight: 2 }}>
+            <li>Go to <strong>Backup</strong> tab → Download Backup</li>
+            <li>Push your code changes to GitHub</li>
+            <li>Wait for Render to finish deploying</li>
+            <li>Log in and go to <strong>Backup</strong> tab → Restore</li>
+          </ol>
+        </div>
       </div>
     </div>
   );
