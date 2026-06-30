@@ -27,8 +27,8 @@ if (!fs.existsSync(ADMIN_FILE)) fs.writeFileSync(ADMIN_FILE, JSON.stringify({ ap
 // ── Middleware ─────────────────────────────────────────────────────────────
 
 app.use(cors({ origin: '*', credentials: true }));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '200mb' }));
+app.use(express.urlencoded({ extended: true, limit: '200mb' }));
 
 // Request logger — remove after debugging
 app.use((req, res, next) => {
