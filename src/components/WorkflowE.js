@@ -657,7 +657,7 @@ export default function WorkflowE({ onBack, onNavigate }) {
             <div style={{ fontWeight: 700, color: '#a04000', marginBottom: 4 }}>🔮 Gemini failed</div>
             <div style={{ fontSize: 12, color: '#a04000', marginBottom: 10 }}>{geminiError}</div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-primary btn-sm" onClick={() => { skipGeminiRef.current = true; setGeminiError(''); handleGenerateAll(); }}>Use OpenAI instead</button>
+              <button className="btn btn-primary btn-sm" onClick={() => { skipGeminiRef.current = true; setGeminiError(''); handleGeneratePreview(); }}>Use OpenAI instead</button>
               <button className="btn btn-ghost btn-sm" onClick={() => setGeminiError('')}>Dismiss</button>
             </div>
           </div>
