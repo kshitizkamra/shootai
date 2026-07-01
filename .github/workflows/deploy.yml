@@ -25,7 +25,9 @@ jobs:
             git pull origin master
             npm install
             npm run build
-            pm2 restart shootai
+            cd ~/shootai/server
+            pm2 startOrRestart ecosystem.config.js --env production
+            cd ~/shootai
 
             # Ensure nginx allows large batch payloads (base64 images)
             if ! grep -q 'client_max_body_size' /etc/nginx/sites-available/default; then

@@ -584,7 +584,11 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
   try {
     const ai = new GoogleGenAI({ apiKey: googleKey });
 
-    const inlinedRequests = (requests || []).map(r => {
+    // Build inlinedRequests and immediately clear the source from memory
+    // to avoid holding two copies of all image data simultaneously
+    const rawRequests = requests || [];
+    req.body = null; // allow GC to collect parsed request body
+    const inlinedRequests = rawRequests.map(r => {
       const parts = [{ text: r.prompt }];
       (r.images || []).forEach(img => {
         parts.push({
@@ -594,6 +598,7 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
           },
         });
       });
+      r.images = null; // free image data from source as we go
       return {
         contents: [{ role: 'user', parts }],
         config: {
