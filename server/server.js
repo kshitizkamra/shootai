@@ -629,6 +629,16 @@ app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
 
   const isAdmin = req.userRole === 'admin';
   const uid = isAdmin ? 'admin' : req.userId;
+  const jobId = name.split('/').pop();
+
+  // If results are already cached locally (prior poll succeeded but response failed),
+  // serve from cache immediately — avoids re-downloading from Gemini.
+  if (!isAdmin) {
+    const cached = readUserStore(uid, `batch_results_${jobId}`);
+    if (cached) {
+      return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: cached });
+    }
+  }
 
   try {
     const ai = new GoogleGenAI({ apiKey: googleKey });
@@ -651,9 +661,13 @@ app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
         return null;
       });
 
+      // Cache results to disk FIRST — so retries can serve from cache if response fails
+      if (!isAdmin) {
+        writeUserStore(uid, `batch_results_${jobId}`, results);
+      }
+
       // Deduct credits once on first successful poll
       if (!isAdmin) {
-        const jobId = name.split('/').pop();
         const meta = readUserStore(uid, `batch_meta_${jobId}`);
         if (meta && !meta.creditsClaimed && meta.userId) {
           const successCount = results.filter(Boolean).length;
