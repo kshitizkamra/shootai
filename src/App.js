@@ -19,6 +19,7 @@ export default function App() {
   const [activeScreen, setActiveScreen] = useState('workflow');
   const [batchCount, setBatchCount] = useState(0);
   const [credits, setCredits] = useState(null);
+  const [reservedCredits, setReservedCredits] = useState(0);
 
   const refreshCredits = useCallback(async () => {
     const token = localStorage.getItem('shootai_token');
@@ -30,6 +31,7 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setCredits(data.credits);
+        setReservedCredits(data.reserved || 0);
       }
     } catch {}
   }, []);
@@ -204,9 +206,12 @@ export default function App() {
               fontSize: 13, fontWeight: 700,
               color: credits === 0 ? '#c53030' : 'var(--charcoal)',
             }}>
-              {credits} credit{credits !== 1 ? 's' : ''}
+              {reservedCredits > 0 ? `${credits - reservedCredits} available` : `${credits} credit${credits !== 1 ? 's' : ''}`}
             </span>
-            {credits === 0 && (
+            {reservedCredits > 0 && (
+              <span style={{ fontSize: 10, color: '#e07020' }}>· {reservedCredits} in batch</span>
+            )}
+            {credits === 0 && reservedCredits === 0 && (
               <span style={{ fontSize: 10, color: '#c53030' }}>· Top up</span>
             )}
           </div>

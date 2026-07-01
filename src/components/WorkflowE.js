@@ -325,7 +325,14 @@ export default function WorkflowE({ onBack, onNavigate }) {
           shotInstruction: shotInstructions[shotType] || '',
           quality: 'low', resolution,
           label: `PDP-E — ${product.name} — ${shot}`,
-          meta: { model: selectedModel?.name || 'Unknown', background: selectedBg?.name || 'Unknown', category },
+          meta: {
+            model: selectedModel?.name || 'Unknown',
+            background: selectedBg?.name || 'None',
+            pose: poseBase64 ? (selectedPose?.name || 'Custom') : 'None',
+            category,
+            globalInstruction: globalInstruction || '',
+            shotInstruction: shotInstructions[shotType] || '',
+          },
           _settings,
         });
       });

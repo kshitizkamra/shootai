@@ -230,9 +230,10 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 // ── User routes ────────────────────────────────────────────────────────────
 
 app.get('/api/user/credits', requireAuth, requireActive, (req, res) => {
-  if (req.userRole === 'admin') return res.json({ credits: null });
+  if (req.userRole === 'admin') return res.json({ credits: null, reserved: 0 });
   const user = readUsers().find(u => u.id === req.userId);
-  res.json({ credits: user?.credits || 0 });
+  const reserved = getReservedCredits(req.userId);
+  res.json({ credits: user?.credits || 0, reserved });
 });
 
 app.get('/api/user/transactions', requireAuth, requireActive, (req, res) => {
@@ -651,8 +652,8 @@ app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
     const ai = new GoogleGenAI({ apiKey: googleKey });
     const job = await Promise.race([
       ai.batches.get({ name }),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Gemini status check timed out — job still running')), 90000)
+      new Promise((resolve) =>
+        setTimeout(() => resolve({ name, state: 'JOB_STATE_RUNNING', _timedOut: true }), 55000)
       ),
     ]);
 

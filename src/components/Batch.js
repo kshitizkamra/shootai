@@ -3,6 +3,7 @@ import { getBatchQueue, removeFromBatchQueue, clearBatchQueue, getBatchJobs, sav
 import { submitBatchJob, pollBatchJob, cancelBatchJob } from '../utils/api';
 import { saveToOutput } from '../utils/fileHandler';
 import { getResolution } from '../utils/constants';
+import { addHistoryEntry } from '../utils/storage';
 
 const WORKFLOW_LABELS = { A: '🌅 Background', B: '👤 Change Model', C: '📸 PDP Shoot', D: '👗 Try-On' };
 const STATE_LABELS = {
@@ -22,6 +23,7 @@ export default function Batch() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState({});
+  const [lightbox, setLightbox] = useState(null); // { src, label }
   const hasActiveRef = useRef(false);
 
   const loadQueue = useCallback(async () => {
@@ -72,7 +74,23 @@ export default function Batch() {
     for (const job of active) {
       try {
         const updated = await pollBatchJob(job.name);
-        await saveBatchJob({ ...job, ...updated });
+        const merged = { ...job, ...updated };
+        // Auto-save results to History when job first succeeds
+        if (updated.state === 'JOB_STATE_SUCCEEDED' && updated.results?.length) {
+          const savedPaths = [...(job.savedPaths || [])];
+          for (let i = 0; i < updated.results.length; i++) {
+            if (updated.results[i] && !savedPaths[i]) {
+              const label = job.itemLabels?.[i] || `batch_${i}`;
+              const meta = job.itemMetas?.[i] || job.meta || {};
+              try {
+                await addHistoryEntry({ imageData: updated.results[i], label, workflow: 'Batch', meta });
+                savedPaths[i] = 'history';
+              } catch {}
+            }
+          }
+          merged.savedPaths = savedPaths;
+        }
+        await saveBatchJob(merged);
       } catch (e) {
         console.warn('Poll failed for', job.name, e.message);
       }
@@ -112,6 +130,7 @@ export default function Batch() {
         itemCount: selectedQueue.length,
         itemLabels: selectedQueue.map(q => q.label),
         resolutions: selectedQueue.map(q => q.resolution),
+        itemMetas: selectedQueue.map(q => q.meta || {}),
         meta: jobMeta,
         results: null,
         savedPaths: [],
@@ -288,10 +307,18 @@ export default function Batch() {
                         <span style={{ fontSize: 18 }}>{WORKFLOW_LABELS[item.workflow] || '✨'}</span>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)' }}>{item.label}</div>
-                          <div style={{ fontSize: 11, color: 'var(--gray-500)' }}>
-                            {item.images?.length || 0} image{(item.images?.length || 0) !== 1 ? 's' : ''} · {item.aspectRatio} · {item.resolution}
-                            {' · Added '}{new Date(item.createdAt).toLocaleTimeString()}
+                          <div style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 2 }}>
+                            {item.images?.length || 0} img · {item.resolution} · {new Date(item.createdAt).toLocaleTimeString()}
                           </div>
+                          {item.meta && (
+                            <div style={{ fontSize: 10, color: 'var(--gray-600)', marginTop: 3, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                              {item.meta.model && <span>👤 {item.meta.model}</span>}
+                              {item.meta.background && item.meta.background !== 'None' && <span>🖼 {item.meta.background}</span>}
+                              {item.meta.pose && item.meta.pose !== 'None' && <span>🧍 {item.meta.pose}</span>}
+                              {item.meta.globalInstruction && <span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>💬 {item.meta.globalInstruction}</span>}
+                              {item.meta.shotInstruction && <span style={{ color: '#888', fontStyle: 'italic' }}>📌 {item.meta.shotInstruction}</span>}
+                            </div>
+                          )}
                         </div>
                         <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)', padding: '2px 8px' }}
                           onClick={e => { e.stopPropagation(); handleRemoveItem(item.id); }}>✕</button>
@@ -362,11 +389,25 @@ export default function Batch() {
                           </div>
                         </div>
 
-                        {/* Item labels */}
+                        {/* Item labels with per-item meta */}
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: succeeded ? 12 : 0 }}>
-                          {(job.itemLabels || []).map((lbl, i) => (
-                            <span key={i} style={{ fontSize: 10, background: 'var(--gray-100)', color: 'var(--gray-600)', borderRadius: 4, padding: '2px 7px' }}>{lbl}</span>
-                          ))}
+                          {(job.itemLabels || []).map((lbl, i) => {
+                            const m = job.itemMetas?.[i];
+                            return (
+                              <div key={i} style={{ fontSize: 10, background: 'var(--gray-100)', color: 'var(--gray-600)', borderRadius: 4, padding: '3px 7px' }}>
+                                <div style={{ fontWeight: 600 }}>{lbl}</div>
+                                {m && (
+                                  <div style={{ marginTop: 2, display: 'flex', flexWrap: 'wrap', gap: 4, color: 'var(--gray-500)' }}>
+                                    {m.model && <span>👤 {m.model}</span>}
+                                    {m.background && m.background !== 'None' && <span>🖼 {m.background}</span>}
+                                    {m.pose && m.pose !== 'None' && <span>🧍 {m.pose}</span>}
+                                    {m.globalInstruction && <span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>💬 {m.globalInstruction}</span>}
+                                    {m.shotInstruction && <span style={{ fontStyle: 'italic' }}>📌 {m.shotInstruction}</span>}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
 
                         {/* Results */}
@@ -403,7 +444,9 @@ export default function Batch() {
                                       )}
                                       {saved && (
                                         <span style={{ fontSize: 9, color: 'var(--green)', cursor: 'pointer' }}
-                                          onClick={() => window.electronAPI.openInExplorer(saved)}>✓ Open</span>
+                                          onClick={() => img && setLightbox({ src: img, label: job.itemLabels?.[ri] || '' })}>
+                                          {img ? '🔍 View' : '✓ History'}
+                                        </span>
                                       )}
                                     </div>
                                   </div>
@@ -433,6 +476,18 @@ export default function Batch() {
           </div>
         )}
       </div>
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div onClick={() => setLightbox(null)} style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 1000,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out',
+        }}>
+          <div style={{ fontSize: 12, color: '#ccc', marginBottom: 8, maxWidth: '90vw', textAlign: 'center' }}>{lightbox.label}</div>
+          <img src={lightbox.src} alt="" style={{ maxWidth: '90vw', maxHeight: '85vh', objectFit: 'contain', borderRadius: 8 }} />
+          <div style={{ fontSize: 11, color: '#888', marginTop: 8 }}>Click anywhere to close</div>
+        </div>
+      )}
     </div>
   );
 }
