@@ -23,8 +23,10 @@ export default function Batch() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState({});
+  const [loadingImages, setLoadingImages] = useState({});
   const [lightbox, setLightbox] = useState(null); // { src, label }
   const hasActiveRef = useRef(false);
+  const savedToHistoryRef = useRef(new Set());
 
   const loadQueue = useCallback(async () => {
     const q = await getBatchQueue();
@@ -79,7 +81,9 @@ export default function Batch() {
         if (updated.state === 'JOB_STATE_SUCCEEDED' && updated.results?.length) {
           const savedPaths = [...(job.savedPaths || [])];
           for (let i = 0; i < updated.results.length; i++) {
-            if (updated.results[i] && !savedPaths[i]) {
+            const saveKey = `${job.name}_${i}`;
+            if (updated.results[i] && !savedPaths[i] && !savedToHistoryRef.current.has(saveKey)) {
+              savedToHistoryRef.current.add(saveKey);
               const label = job.itemLabels?.[i] || `batch_${i}`;
               const meta = job.itemMetas?.[i] || job.meta || {};
               try {
@@ -196,6 +200,22 @@ export default function Batch() {
       setError('Save failed: ' + e.message);
     }
     setSaving(prev => ({ ...prev, [key]: false }));
+  }
+
+  async function handleLoadImages(jobIdx) {
+    const job = jobs[jobIdx];
+    if (!job) return;
+    setLoadingImages(prev => ({ ...prev, [jobIdx]: true }));
+    try {
+      const data = await pollBatchJob(job.name);
+      if (data.results?.length) {
+        const updated = { ...job, results: data.results };
+        setJobs(prev => prev.map((j, i) => i === jobIdx ? updated : j));
+      }
+    } catch (e) {
+      setError('Could not load images: ' + e.message);
+    }
+    setLoadingImages(prev => ({ ...prev, [jobIdx]: false }));
   }
 
   async function handleSaveAllResults(jobIdx) {
@@ -416,9 +436,16 @@ export default function Batch() {
                           <>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                               <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--navy)' }}>Results ({job.results.filter(Boolean).length}/{job.results.length})</span>
-                              {unsavedCount > 0 && (
-                                <button className="btn btn-primary btn-sm" onClick={() => handleSaveAllResults(ji)}>⬇ Save All</button>
-                              )}
+                              <div style={{ display: 'flex', gap: 6 }}>
+                                {job.results.every(r => !r) && (
+                                  <button className="btn btn-ghost btn-sm" onClick={() => handleLoadImages(ji)} disabled={loadingImages[ji]}>
+                                    {loadingImages[ji] ? '…' : '📷 Load Images'}
+                                  </button>
+                                )}
+                                {unsavedCount > 0 && (
+                                  <button className="btn btn-primary btn-sm" onClick={() => handleSaveAllResults(ji)}>⬇ Save All</button>
+                                )}
+                              </div>
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
                               {job.results.map((img, ri) => {
