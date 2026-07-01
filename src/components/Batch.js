@@ -227,18 +227,19 @@ export default function Batch() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div className="screen-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <div style={{ flex: 1 }}>
             <h1>📦 Batch Processing</h1>
             <p>Queue multiple generations and submit them together — processed asynchronously in the background</p>
           </div>
           {activeCount > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, paddingTop: 6, flexShrink: 0 }}>
               <span className="spinner spinner-dark" style={{ width: 14, height: 14 }} />
               <span style={{ color: '#e07020' }}>{activeCount} job{activeCount > 1 ? 's' : ''} running</span>
               <button className="btn btn-ghost btn-sm" onClick={pollAllJobs}>↻ Check Now</button>
             </div>
           )}
+          <div style={{ width: 140, flexShrink: 0 }} />
         </div>
       </div>
 
