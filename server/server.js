@@ -623,39 +623,13 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
   }
 });
 
-app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
-  const { name } = req.body;
-  const { googleKey } = getGlobalApiKeys();
-  if (!googleKey) return res.status(400).json({ error: 'Service not configured. Contact admin.' });
+// Track in-progress background fetches so we don't double-fetch
+const ongoingBatchFetches = new Map();
 
-  const isAdmin = req.userRole === 'admin';
-  const uid = isAdmin ? 'admin' : req.userId;
-  const jobId = name.split('/').pop();
-
-  // If results are already cached locally (prior poll succeeded but response failed),
-  // serve from cache immediately — avoids re-downloading from Gemini.
-  if (!isAdmin) {
-    const cached = readUserStore(uid, `batch_results_${jobId}`);
-    if (cached) {
-      return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: cached });
-    }
-    // If credits already claimed but no cache, job completed but results were lost.
-    // Return SUCCEEDED with empty results so the UI stops polling.
-    const meta = readUserStore(uid, `batch_meta_${jobId}`);
-    if (meta && meta.creditsClaimed) {
-      console.log(`[batch-get] Job ${jobId} already credited, no cached results — returning empty SUCCEEDED`);
-      return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: [] });
-    }
-  }
-
+async function fetchAndCacheBatchResults(googleKey, name, uid, jobId) {
   try {
     const ai = new GoogleGenAI({ apiKey: googleKey });
-    const job = await Promise.race([
-      ai.batches.get({ name }),
-      new Promise((resolve) =>
-        setTimeout(() => resolve({ name, state: 'JOB_STATE_RUNNING', _timedOut: true }), 55000)
-      ),
-    ]);
+    const job = await ai.batches.get({ name }); // no timeout — runs until Gemini responds
 
     if (job.state === 'JOB_STATE_SUCCEEDED') {
       const responses = (job.dest && job.dest.inlinedResponses) || [];
@@ -669,42 +643,75 @@ app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
         return null;
       });
 
-      // Cache results to disk FIRST — so retries can serve from cache if response fails
-      if (!isAdmin) {
-        writeUserStore(uid, `batch_results_${jobId}`, results);
-      }
+      // Write results FIRST, then state — so polls never see SUCCEEDED without results
+      writeUserStore(uid, `batch_results_${jobId}`, results);
+      writeUserStore(uid, `batch_state_${jobId}`, { state: 'JOB_STATE_SUCCEEDED', ts: Date.now() });
 
-      // Deduct credits once on first successful poll
-      if (!isAdmin) {
-        const meta = readUserStore(uid, `batch_meta_${jobId}`);
-        if (meta && !meta.creditsClaimed && meta.userId) {
-          const successCount = results.filter(Boolean).length;
-          if (successCount > 0) {
-            const users = readUsers();
-            const idx = users.findIndex(u => u.id === meta.userId);
-            if (idx !== -1) {
-              const toDeduct = Math.min(successCount, users[idx].credits || 0);
-              users[idx].credits = (users[idx].credits || 0) - toDeduct;
-              users[idx].totalCreditsUsed = (users[idx].totalCreditsUsed || 0) + toDeduct;
-              users[idx].totalImagesGenerated = (users[idx].totalImagesGenerated || 0) + successCount;
-              writeUsers(users);
-              if (toDeduct > 0)
-                addTransaction(meta.userId, 'credit_used', toDeduct,
-                  `${toDeduct} credit${toDeduct > 1 ? 's' : ''} used (batch: ${successCount} image${successCount > 1 ? 's' : ''})`);
-            }
+      // Deduct credits once
+      const meta = readUserStore(uid, `batch_meta_${jobId}`);
+      if (meta && !meta.creditsClaimed && meta.userId) {
+        const successCount = results.filter(Boolean).length;
+        if (successCount > 0) {
+          const users = readUsers();
+          const idx = users.findIndex(u => u.id === meta.userId);
+          if (idx !== -1) {
+            const toDeduct = Math.min(successCount, users[idx].credits || 0);
+            users[idx].credits = (users[idx].credits || 0) - toDeduct;
+            users[idx].totalCreditsUsed = (users[idx].totalCreditsUsed || 0) + toDeduct;
+            users[idx].totalImagesGenerated = (users[idx].totalImagesGenerated || 0) + successCount;
+            writeUsers(users);
+            if (toDeduct > 0)
+              addTransaction(meta.userId, 'credit_used', toDeduct,
+                `${toDeduct} credit${toDeduct > 1 ? 's' : ''} used (batch: ${successCount} image${successCount > 1 ? 's' : ''})`);
           }
-          writeUserStore(uid, `batch_meta_${jobId}`, { ...meta, creditsClaimed: true });
         }
+        writeUserStore(uid, `batch_meta_${jobId}`, { ...meta, creditsClaimed: true });
       }
-
-      return res.json({ name: job.name, state: job.state, results });
+      console.log(`[batch-bg] Job ${jobId} succeeded — cached ${results.filter(Boolean).length} results`);
+    } else {
+      // Store last known non-succeeded state
+      writeUserStore(uid, `batch_state_${jobId}`, { state: job.state || 'JOB_STATE_RUNNING', ts: Date.now() });
     }
-
-    res.json({ name: job.name, state: job.state || 'JOB_STATE_PENDING' });
   } catch (e) {
-    console.error(`[batch-get error] job=${jobId}`, e.message, e.status || '', e.code || '');
-    res.status(500).json({ error: e.message || String(e) });
+    console.error(`[batch-bg error] job=${jobId}`, e.message);
+  } finally {
+    ongoingBatchFetches.delete(`${uid}:${jobId}`);
   }
+}
+
+app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
+  const { name } = req.body;
+  const { googleKey } = getGlobalApiKeys();
+  if (!googleKey) return res.status(400).json({ error: 'Service not configured. Contact admin.' });
+
+  const isAdmin = req.userRole === 'admin';
+  const uid = isAdmin ? 'admin' : req.userId;
+  const jobId = name.split('/').pop();
+  const fetchKey = `${uid}:${jobId}`;
+
+  // 1. Serve from cache if results are ready
+  if (!isAdmin) {
+    const cached = readUserStore(uid, `batch_results_${jobId}`);
+    if (cached) {
+      return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: cached });
+    }
+    // Credits claimed but no cache = results lost
+    const meta = readUserStore(uid, `batch_meta_${jobId}`);
+    if (meta && meta.creditsClaimed) {
+      return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: [] });
+    }
+  }
+
+  // 2. Start a background fetch if not already running
+  if (!ongoingBatchFetches.has(fetchKey)) {
+    ongoingBatchFetches.set(fetchKey, true);
+    fetchAndCacheBatchResults(googleKey, name, uid, jobId); // fire and forget
+  }
+
+  // 3. Report last known state immediately — no waiting
+  const lastState = !isAdmin ? readUserStore(uid, `batch_state_${jobId}`) : null;
+  const reportedState = lastState?.state || 'JOB_STATE_RUNNING';
+  return res.json({ name, state: reportedState });
 });
 
 app.post('/api/ai/gemini-batch-cancel', requireAuth, async (req, res) => {
