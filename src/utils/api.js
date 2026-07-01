@@ -206,7 +206,7 @@ export async function generatePDPShot({ modelImageBase64, productImagesBase64, b
     shotPrompt += ` CROP AREA: Show ONLY from ${detailNote} — frame the image tightly to this region. Do NOT show the full body. Do NOT show areas outside this crop zone.`;
   }
 
-  const effectivePose = (shotType === 'Styled' && !shotInstruction) ? poseImageBase64 : null;
+  const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
 
   const productImages = Array.isArray(productImagesBase64) ? productImagesBase64 : [productImagesBase64];
   const images = [modelImageBase64, ...productImages];
@@ -329,7 +329,7 @@ export async function prepareBatchChangeModel({ modelImageBase64, productImageBa
 export async function prepareBatchPDPShot({ modelImageBase64, productImagesBase64, backgroundImageBase64, poseImageBase64, shotType, productName, modelBodyType, modelDescription, detailNote, globalInstruction, shotInstruction, quality, resolution, label, model: modelOverride }) {
   const settings = await getSettings();
   const model = modelOverride || settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
-  const effectivePose = (shotType === 'Styled' && !shotInstruction) ? poseImageBase64 : null;
+  const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
 
   const productImages = Array.isArray(productImagesBase64) ? productImagesBase64 : [productImagesBase64];
   const images = [modelImageBase64, ...productImages];
@@ -414,9 +414,9 @@ const CATEGORY_ACTIONS = {
     Back:  'Action: model facing away from camera, hair swept to one side. FULL BODY — entire figure from head to feet visible. Do NOT crop below the knees. Feet must be visible.',
   },
   topwear: {
-    Front: 'Action: 3/4 shot focusing on the upper garment. FRAMING — CRITICAL: This is NOT a full body shot. The bottom of the frame must end at hip or thigh level. Legs and feet must NOT be visible. Camera zoomed in to show the upper garment as the hero. Do NOT generate a full body image under any circumstances.',
-    Side:  'Action: 3/4 side shot, model facing right, focusing on the upper garment. FRAMING — CRITICAL: This is NOT a full body shot. The bottom of the frame must end at hip or thigh level. Legs and feet must NOT be visible. Show the upper garment silhouette clearly. Do NOT generate a full body image.',
-    Back:  'Action: 3/4 back shot, model facing away, focusing on the upper garment. FRAMING — CRITICAL: This is NOT a full body shot. The bottom of the frame must end at hip or thigh level. Legs and feet must NOT be visible. Show the back of the upper garment clearly. Do NOT generate a full body image.',
+    Front: 'Action: 3/4 shot focusing on the upper garment. FRAMING — ABSOLUTE: This is a CROPPED UPPER-BODY SHOT. The frame MUST end at hip or mid-thigh level. Legs and feet are completely outside the frame — do NOT show them under any circumstances. Camera is zoomed in; the upper garment fills the frame as the hero. Do NOT pull back to show the full body. FOOTWEAR NOTE: Footwear is NOT visible in this shot — do not attempt to show shoes or legs.',
+    Side:  'Action: 3/4 side shot, model facing right. FRAMING — ABSOLUTE: This is a CROPPED UPPER-BODY SHOT. The frame MUST end at hip or mid-thigh level. Legs and feet are completely outside the frame — do NOT show them. Show the side silhouette of the upper garment clearly. Do NOT pull back to show the full body. FOOTWEAR NOTE: Footwear is NOT visible in this shot — do not attempt to show shoes or legs.',
+    Back:  'Action: 3/4 back shot, model facing away from camera. FRAMING — ABSOLUTE: This is a CROPPED UPPER-BODY SHOT. The frame MUST end at hip or mid-thigh level. Legs and feet are completely outside the frame — do NOT show them. Show the back of the upper garment clearly. Do NOT pull back to show the full body. FOOTWEAR NOTE: Footwear is NOT visible in this shot — do not attempt to show shoes or legs.',
   },
   bottomwear: {
     Front: 'Action: 3/4 shot focusing on the lower garment. FRAMING — CRITICAL: This is NOT a full body shot. Frame from waist to feet — do NOT show above the waist. The lower garment is the hero. Show full legs and feet clearly.',
@@ -448,7 +448,7 @@ const MODEL_IDENTITY_PREFIX = {
   'Detail Close-Up': 'MODEL IDENTITY — NON-NEGOTIABLE: The ONLY person in this image must be the exact woman from reference image 1 — her face, skin tone, hair, and body. The person wearing the garment in the product reference images is a placeholder mannequin — their face and body must NOT appear in the output under any circumstances. Any other person\'s likeness is strictly forbidden.',
 };
 
-function buildShotPromptE(shotType, category) {
+function buildShotPromptE(shotType, category, hasPose = false) {
   const cat = category || 'full_outfit';
   const identity = MODEL_IDENTITY_PREFIX[shotType] || MODEL_IDENTITY_PREFIX['Front'];
   const lighting = 'LIGHTING: Lighting intensity, color temperature, and overall brightness must be identical to every other shot in this set — no shot should appear brighter, darker, warmer, or cooler than the others. The model must look naturally lit within the scene, not composited onto it.';
@@ -457,7 +457,10 @@ function buildShotPromptE(shotType, category) {
   const framingLock = 'FRAMING IS NON-NEGOTIABLE: The camera distance and model scale defined for this shot type must not change based on the background. Do NOT zoom out or pull the camera back to show more of the environment. The background must fit within the model\'s required framing — not the other way around.';
 
   if (shotType === 'Styled') {
-    return `${identity} Action: editorial lifestyle pose — creative, natural, and expressive. The model should look candid and editorial, not stiff. Mood: aspirational fashion campaign. FULL BODY — entire figure visible. FRAMING: The model should occupy at least 65% of the frame height — medium to medium-wide shot. BACKGROUND: Keep the exact background as specified in SETTING — do not alter the color, tone, or environment in any way. GARMENT FIDELITY — CRITICAL: The garment must be reproduced EXACTLY from the product reference images — same color, same print, same pattern, same construction. Do NOT change the garment color, print scale, print density, motifs, embellishments, hemline, neckline, or silhouette in any way. The pose reference image contains a person wearing a different garment — ignore that garment completely and reproduce ONLY the product garment from the product reference images. PRINT/PATTERN — NON-NEGOTIABLE: If the product has a print or pattern (buti, floral, stripes, checks, etc.), reproduce it at the EXACT same scale, color, density, and placement as shown in the product reference. Do NOT rescale, simplify, alter, or replace the print. Do NOT add borders, embroidery, or embellishments that are not present in the product reference. ${lighting} ${framingLock}`;
+    const poseAction = hasPose
+      ? 'Action: REPLICATE THE EXACT POSE from the pose reference image — same body stance, arm position, weight distribution, and body language. This is NON-NEGOTIABLE. Do NOT default to a plain standing pose or invent a different pose.'
+      : 'Action: editorial lifestyle pose — creative, natural, and expressive. The model should look candid and editorial, not stiff. Mood: aspirational fashion campaign.';
+    return `${identity} ${poseAction} FULL BODY — entire figure visible. FRAMING: The model should occupy at least 65% of the frame height — medium to medium-wide shot. BACKGROUND: Keep the exact background as specified in SETTING — do not alter the color, tone, or environment in any way. GARMENT FIDELITY — CRITICAL: The garment must be reproduced EXACTLY from the product reference images — same color, same print, same pattern, same construction. Do NOT change the garment color, print scale, print density, motifs, embellishments, hemline, neckline, or silhouette in any way. The pose reference image contains a person wearing a different garment — ignore that garment completely and reproduce ONLY the product garment from the product reference images. PRINT/PATTERN — NON-NEGOTIABLE: If the product has a print or pattern (buti, floral, stripes, checks, etc.), reproduce it at the EXACT same scale, color, density, and placement as shown in the product reference. Do NOT rescale, simplify, alter, or replace the print. Do NOT add borders, embroidery, or embellishments that are not present in the product reference. ${lighting} ${framingLock}`;
   }
   if (shotType === 'Detail Close-Up') {
     return `Action: ZOOM INTO THE ACTUAL GARMENT on the model. ${identity} Do NOT reimagine, reconstruct, add, or exaggerate any garment detail. Do not over-emphasize seams or stitching beyond what is visible in the reference. Do NOT add smocking, gathering, shirring, elastic, ruffles, or any embellishment at the waist or any other area that is not clearly visible in the reference images — if the garment has a plain seam at the waist, keep it as a plain seam. CRITICAL: The garment color must exactly match the color in all reference images — do not shift, darken, or alter the hue in any way. FOOTWEAR NOTE: Do NOT alter the framing of this shot to show footwear — only include footwear if feet fall naturally within the detail area being shown. Do not zoom out or reframe to accommodate shoes. ${lighting} ${framingLock}`;
@@ -475,7 +478,7 @@ export async function generatePDPShotE({ modelImageBase64, productImagesBase64, 
   const settings = await getSettings();
   const q = quality || settings.defaultQuality || 'high';
   const sz = apiSize || '1024x1536';
-  const effectivePose = (shotType === 'Styled' && !shotInstruction) ? poseImageBase64 : null;
+  const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
 
   const productImages = Array.isArray(productImagesBase64) ? productImagesBase64 : [productImagesBase64];
   const images = [modelImageBase64, ...productImages];
@@ -484,7 +487,7 @@ export async function generatePDPShotE({ modelImageBase64, productImagesBase64, 
   if (effectivePose) images.push(effectivePose);
   const poseIdx = effectivePose ? images.length : null;
 
-  let shotPrompt = buildShotPromptE(shotType, category);
+  let shotPrompt = buildShotPromptE(shotType, category, !!effectivePose);
   if (shotType === 'Detail Close-Up' && detailNote) {
     shotPrompt += ` CROP AREA: Show ONLY from ${detailNote} — frame the image tightly to this region. Do NOT show the full body. Do NOT show areas outside this crop zone.`;
   }
@@ -526,7 +529,7 @@ Premium D2C fashion brand photography quality.
 export async function prepareBatchPDPShotE({ modelImageBase64, productImagesBase64, backgroundImageBase64, poseImageBase64, shotType, productName, category, modelBodyType, modelDescription, detailNote, globalInstruction, shotInstruction, quality, resolution, label, model: modelOverride, _settings }) {
   const settings = _settings || await getSettings();
   const model = modelOverride || settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
-  const effectivePose = (shotType === 'Styled' && !shotInstruction) ? poseImageBase64 : null;
+  const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
 
   const productImages = Array.isArray(productImagesBase64) ? productImagesBase64 : [productImagesBase64];
   const images = [modelImageBase64, ...productImages];
@@ -535,7 +538,7 @@ export async function prepareBatchPDPShotE({ modelImageBase64, productImagesBase
   if (effectivePose) images.push(effectivePose);
   const poseIdx = effectivePose ? images.length : null;
 
-  let shotPrompt = buildShotPromptE(shotType, category);
+  let shotPrompt = buildShotPromptE(shotType, category, !!effectivePose);
   if (shotType === 'Detail Close-Up' && detailNote) {
     shotPrompt += ` CROP AREA: Show ONLY from ${detailNote} — frame the image tightly to this region. Do NOT show the full body. Do NOT show areas outside this crop zone.`;
   }
