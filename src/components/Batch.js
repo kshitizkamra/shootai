@@ -337,6 +337,7 @@ export default function Batch() {
                               {item.meta.model && <span>👤 {item.meta.model}</span>}
                               {item.meta.background && item.meta.background !== 'None' && <span>🖼 {item.meta.background}</span>}
                               {item.meta.pose && item.meta.pose !== 'None' && <span>🧍 {item.meta.pose}</span>}
+                              {item.meta.detailNote && <span style={{ color: '#888', fontStyle: 'italic' }}>🔍 {item.meta.detailNote}</span>}
                               {item.meta.globalInstruction && <span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>💬 {item.meta.globalInstruction}</span>}
                               {item.meta.shotInstruction && <span style={{ color: '#888', fontStyle: 'italic' }}>📌 {item.meta.shotInstruction}</span>}
                             </div>
@@ -424,6 +425,7 @@ export default function Batch() {
                                     {m.model && <span>👤 {m.model}</span>}
                                     {m.background && m.background !== 'None' && <span>🖼 {m.background}</span>}
                                     {m.pose && m.pose !== 'None' && <span>🧍 {m.pose}</span>}
+                                    {m.detailNote && <span style={{ fontStyle: 'italic' }}>🔍 {m.detailNote}</span>}
                                     {m.globalInstruction && <span style={{ color: 'var(--gold)', fontStyle: 'italic' }}>💬 {m.globalInstruction}</span>}
                                     {m.shotInstruction && <span style={{ fontStyle: 'italic' }}>📌 {m.shotInstruction}</span>}
                                   </div>

@@ -332,6 +332,7 @@ export default function WorkflowE({ onBack, onNavigate }) {
             category,
             globalInstruction: globalInstruction || '',
             shotInstruction: shotInstructions[shotType] || '',
+            detailNote: detailNote || '',
           },
           _settings,
         });

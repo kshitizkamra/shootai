@@ -26,4 +26,12 @@ jobs:
             npm install
             npm run build
             pm2 restart shootai
+
+            # Ensure nginx allows large batch payloads (base64 images)
+            if ! grep -q 'client_max_body_size' /etc/nginx/sites-available/default; then
+              sudo sed -i '/proxy_read_timeout/a \\t\tclient_max_body_size 250m;' /etc/nginx/sites-available/default
+              sudo nginx -t && sudo systemctl reload nginx
+              echo "nginx updated with client_max_body_size 250m"
+            fi
+
             echo "Deploy complete"
