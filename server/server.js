@@ -624,15 +624,34 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
 });
 
 // Track in-progress background fetches so we don't double-fetch
+// Keys: `${uid}:${jobId}` for status checks, `${uid}:${jobId}:dl` for image downloads
 const ongoingBatchFetches = new Map();
 
-async function fetchAndCacheBatchResults(googleKey, name, uid, jobId) {
-  console.log(`[batch-bg] Started fetch for ${jobId}`);
+// Phase 1: Fast status-only check via REST with field mask — no image download
+async function checkBatchState(googleKey, name) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/${name}?fields=state%2Cerror`;
+    const res = await fetch(url, {
+      headers: { 'x-goog-api-key': googleKey },
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    return data.state || 'JOB_STATE_RUNNING';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Phase 2: Full image download — only runs after state is confirmed SUCCEEDED
+async function downloadBatchImages(googleKey, name, uid, jobId) {
+  console.log(`[batch-dl] Downloading images for ${jobId}`);
   try {
     const ai = new GoogleGenAI({ apiKey: googleKey });
-    console.log(`[batch-bg] Calling ai.batches.get for ${jobId}`);
     const job = await ai.batches.get({ name });
-    console.log(`[batch-bg] Got response for ${jobId}: state=${job.state}`);
 
     if (job.state === 'JOB_STATE_SUCCEEDED') {
       const responses = (job.dest && job.dest.inlinedResponses) || [];
@@ -646,7 +665,6 @@ async function fetchAndCacheBatchResults(googleKey, name, uid, jobId) {
         return null;
       });
 
-      // Write results FIRST, then state — so polls never see SUCCEEDED without results
       writeUserStore(uid, `batch_results_${jobId}`, results);
       writeUserStore(uid, `batch_state_${jobId}`, { state: 'JOB_STATE_SUCCEEDED', ts: Date.now() });
 
@@ -670,10 +688,32 @@ async function fetchAndCacheBatchResults(googleKey, name, uid, jobId) {
         }
         writeUserStore(uid, `batch_meta_${jobId}`, { ...meta, creditsClaimed: true });
       }
-      console.log(`[batch-bg] Job ${jobId} succeeded — cached ${results.filter(Boolean).length} results`);
-    } else {
-      // Store last known non-succeeded state
-      writeUserStore(uid, `batch_state_${jobId}`, { state: job.state || 'JOB_STATE_RUNNING', ts: Date.now() });
+      console.log(`[batch-dl] Job ${jobId} — cached ${results.filter(Boolean).length} results`);
+    }
+  } catch (e) {
+    console.error(`[batch-dl error] job=${jobId}`, e.message);
+  } finally {
+    ongoingBatchFetches.delete(`${uid}:${jobId}:dl`);
+  }
+}
+
+// Status check background task — fast, then triggers download if SUCCEEDED
+async function fetchAndCacheBatchResults(googleKey, name, uid, jobId) {
+  console.log(`[batch-bg] Status check for ${jobId}`);
+  try {
+    const state = await checkBatchState(googleKey, name);
+    console.log(`[batch-bg] ${jobId} state=${state}`);
+
+    // Always update the cached state immediately
+    writeUserStore(uid, `batch_state_${jobId}`, { state, ts: Date.now() });
+
+    // If succeeded, kick off image download (separate background task)
+    if (state === 'JOB_STATE_SUCCEEDED') {
+      const dlKey = `${uid}:${jobId}:dl`;
+      if (!ongoingBatchFetches.has(dlKey)) {
+        ongoingBatchFetches.set(dlKey, true);
+        downloadBatchImages(googleKey, name, uid, jobId); // fire and forget
+      }
     }
   } catch (e) {
     console.error(`[batch-bg error] job=${jobId}`, e.message);
@@ -690,31 +730,38 @@ app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
   const isAdmin = req.userRole === 'admin';
   const uid = isAdmin ? 'admin' : req.userId;
   const jobId = name.split('/').pop();
-  const fetchKey = `${uid}:${jobId}`;
 
-  // 1. Serve from cache if results are ready
+  // 1. Serve from results cache — job fully done
   if (!isAdmin) {
     const cached = readUserStore(uid, `batch_results_${jobId}`);
-    if (cached) {
-      return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: cached });
-    }
-    // Credits claimed but no cache = results lost
+    if (cached) return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: cached });
+
+    // Credits claimed but cache missing = results lost (edge case)
     const meta = readUserStore(uid, `batch_meta_${jobId}`);
-    if (meta && meta.creditsClaimed) {
-      return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: [] });
-    }
+    if (meta && meta.creditsClaimed) return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: [] });
   }
 
-  // 2. Start a background fetch if not already running
-  if (!ongoingBatchFetches.has(fetchKey)) {
-    ongoingBatchFetches.set(fetchKey, true);
+  const lastState = !isAdmin ? readUserStore(uid, `batch_state_${jobId}`) : null;
+  const cachedState = lastState?.state;
+
+  // 2. Gemini says SUCCEEDED but images still downloading → keep download going, report downloading
+  if (cachedState === 'JOB_STATE_SUCCEEDED') {
+    const dlKey = `${uid}:${jobId}:dl`;
+    if (!ongoingBatchFetches.has(dlKey)) {
+      ongoingBatchFetches.set(dlKey, true);
+      downloadBatchImages(googleKey, name, uid, jobId); // resume download
+    }
+    return res.json({ name, state: 'JOB_STATE_DOWNLOADING' });
+  }
+
+  // 3. Job still running/pending — fast status check (no image download)
+  const statusKey = `${uid}:${jobId}`;
+  if (!ongoingBatchFetches.has(statusKey)) {
+    ongoingBatchFetches.set(statusKey, true);
     fetchAndCacheBatchResults(googleKey, name, uid, jobId); // fire and forget
   }
 
-  // 3. Report last known state immediately — no waiting
-  const lastState = !isAdmin ? readUserStore(uid, `batch_state_${jobId}`) : null;
-  const reportedState = lastState?.state || 'JOB_STATE_RUNNING';
-  return res.json({ name, state: reportedState });
+  return res.json({ name, state: cachedState || 'JOB_STATE_RUNNING' });
 });
 
 app.post('/api/ai/gemini-batch-cancel', requireAuth, async (req, res) => {

@@ -7,12 +7,13 @@ import { addHistoryEntry } from '../utils/storage';
 
 const WORKFLOW_LABELS = { A: '🌅 Background', B: '👤 Change Model', C: '📸 PDP Shoot', D: '👗 Try-On' };
 const STATE_LABELS = {
-  JOB_STATE_PENDING:   { label: 'Pending',   color: 'var(--gray-500)' },
-  JOB_STATE_RUNNING:   { label: 'Running',   color: '#e07020' },
-  JOB_STATE_SUCCEEDED: { label: 'Succeeded', color: 'var(--green)' },
-  JOB_STATE_FAILED:    { label: 'Failed',    color: 'var(--red)' },
-  JOB_STATE_CANCELLED: { label: 'Cancelled', color: 'var(--gray-500)' },
-  JOB_STATE_CANCELLING:{ label: 'Cancelling',color: 'var(--gray-500)' },
+  JOB_STATE_PENDING:     { label: 'Pending',              color: 'var(--gray-500)' },
+  JOB_STATE_RUNNING:     { label: 'Running',              color: '#e07020' },
+  JOB_STATE_DOWNLOADING: { label: 'Downloading results…', color: '#2b7de9' },
+  JOB_STATE_SUCCEEDED:   { label: 'Succeeded',            color: 'var(--green)' },
+  JOB_STATE_FAILED:      { label: 'Failed',               color: 'var(--red)' },
+  JOB_STATE_CANCELLED:   { label: 'Cancelled',            color: 'var(--gray-500)' },
+  JOB_STATE_CANCELLING:  { label: 'Cancelling',           color: 'var(--gray-500)' },
 };
 
 export default function Batch() {
@@ -58,7 +59,7 @@ export default function Batch() {
 
   // Keep hasActiveRef in sync with jobs state
   useEffect(() => {
-    hasActiveRef.current = jobs.some(j => j.state === 'JOB_STATE_PENDING' || j.state === 'JOB_STATE_RUNNING');
+    hasActiveRef.current = jobs.some(j => ['JOB_STATE_PENDING', 'JOB_STATE_RUNNING', 'JOB_STATE_DOWNLOADING'].includes(j.state));
   }, [jobs]);
 
   // Set up polling once on mount — never reset by jobs changes
@@ -72,7 +73,7 @@ export default function Batch() {
 
   async function pollAllJobs() {
     const current = await getBatchJobs();
-    const active = current.filter(j => j.state === 'JOB_STATE_PENDING' || j.state === 'JOB_STATE_RUNNING');
+    const active = current.filter(j => ['JOB_STATE_PENDING', 'JOB_STATE_RUNNING', 'JOB_STATE_DOWNLOADING'].includes(j.state));
     for (const job of active) {
       try {
         const updated = await pollBatchJob(job.name);
@@ -242,7 +243,7 @@ export default function Batch() {
     loadJobs();
   }
 
-  const activeCount = jobs.filter(j => j.state === 'JOB_STATE_PENDING' || j.state === 'JOB_STATE_RUNNING').length;
+  const activeCount = jobs.filter(j => ['JOB_STATE_PENDING', 'JOB_STATE_RUNNING', 'JOB_STATE_DOWNLOADING'].includes(j.state)).length;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -376,7 +377,8 @@ export default function Batch() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                 {jobs.map((job, ji) => {
                   const stateInfo = STATE_LABELS[job.state] || { label: job.state, color: 'var(--gray-500)' };
-                  const isActive = job.state === 'JOB_STATE_PENDING' || job.state === 'JOB_STATE_RUNNING';
+                  const isActive = ['JOB_STATE_PENDING', 'JOB_STATE_RUNNING', 'JOB_STATE_DOWNLOADING'].includes(job.state);
+                  const isDownloading = job.state === 'JOB_STATE_DOWNLOADING';
                   const succeeded = job.state === 'JOB_STATE_SUCCEEDED';
                   const unsavedCount = succeeded ? (job.results || []).filter((r, i) => r && !(job.savedPaths?.[i])).length : 0;
                   return (
@@ -404,8 +406,8 @@ export default function Batch() {
                               {isActive && <span className="spinner" style={{ width: 10, height: 10, marginRight: 4, borderColor: stateInfo.color, borderTopColor: 'transparent' }} />}
                               {stateInfo.label}
                             </span>
-                            {isActive && <button className="btn btn-ghost btn-sm" onClick={() => handlePollJob(job.name)}>↻ Check</button>}
-                            {isActive && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => handleCancelJob(job.name)}>Cancel</button>}
+                            {isActive && !isDownloading && <button className="btn btn-ghost btn-sm" onClick={() => handlePollJob(job.name)}>↻ Check</button>}
+                            {isActive && !isDownloading && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => handleCancelJob(job.name)}>Cancel</button>}
                             <button className="btn btn-ghost btn-sm" style={{ color: 'var(--gray-500)' }} onClick={() => handleDeleteJob(job.name)} title="Remove from list">✕</button>
                           </div>
                         </div>
