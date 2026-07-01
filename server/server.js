@@ -627,9 +627,12 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
 const ongoingBatchFetches = new Map();
 
 async function fetchAndCacheBatchResults(googleKey, name, uid, jobId) {
+  console.log(`[batch-bg] Started fetch for ${jobId}`);
   try {
     const ai = new GoogleGenAI({ apiKey: googleKey });
-    const job = await ai.batches.get({ name }); // no timeout — runs until Gemini responds
+    console.log(`[batch-bg] Calling ai.batches.get for ${jobId}`);
+    const job = await ai.batches.get({ name });
+    console.log(`[batch-bg] Got response for ${jobId}: state=${job.state}`);
 
     if (job.state === 'JOB_STATE_SUCCEEDED') {
       const responses = (job.dest && job.dest.inlinedResponses) || [];
