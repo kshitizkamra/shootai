@@ -638,6 +638,13 @@ app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
     if (cached) {
       return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: cached });
     }
+    // If credits already claimed but no cache, job completed but results were lost.
+    // Return SUCCEEDED with empty results so the UI stops polling.
+    const meta = readUserStore(uid, `batch_meta_${jobId}`);
+    if (meta && meta.creditsClaimed) {
+      console.log(`[batch-get] Job ${jobId} already credited, no cached results — returning empty SUCCEEDED`);
+      return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: [] });
+    }
   }
 
   try {
@@ -694,6 +701,7 @@ app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
 
     res.json({ name: job.name, state: job.state || 'JOB_STATE_PENDING' });
   } catch (e) {
+    console.error(`[batch-get error] job=${jobId}`, e.message, e.status || '', e.code || '');
     res.status(500).json({ error: e.message || String(e) });
   }
 });
