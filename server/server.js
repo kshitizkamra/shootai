@@ -105,6 +105,24 @@ function refundCredits(userId, amount, reason) {
     `${amount} credit${amount > 1 ? 's' : ''} refunded (${reason})`);
 }
 
+// Sum itemCount across all batch_meta files where credits haven't been claimed yet.
+// This is the "reserved" credit count for a user's currently running batches.
+function getReservedCredits(userId) {
+  const dir = getUserDataDir(userId);
+  let reserved = 0;
+  try {
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+      if (!file.startsWith('batch_meta_') || !file.endsWith('.json')) continue;
+      try {
+        const meta = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+        if (!meta.creditsClaimed) reserved += (meta.itemCount || 0);
+      } catch {}
+    }
+  } catch {}
+  return reserved;
+}
+
 function recordImages(userId, count, creditCost) {
   const users = readUsers();
   const idx = users.findIndex(u => u.id === userId);
@@ -551,8 +569,15 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
 
   if (!isAdmin) {
     const user = readUsers().find(u => u.id === req.userId);
-    if ((user?.credits || 0) < 1)
-      return res.status(402).json({ error: 'Not enough credits. Need at least 1 credit.' });
+    const balance = user?.credits || 0;
+    const reserved = getReservedCredits(req.userId);
+    const requested = (requests || []).length;
+    const available = balance - reserved;
+    if (available < requested) {
+      return res.status(402).json({
+        error: `Not enough credits. This batch needs ${requested} credit${requested !== 1 ? 's' : ''}, but you have ${available} available (${balance} total − ${reserved} reserved for running batches).`,
+      });
+    }
   }
 
   try {
@@ -607,7 +632,12 @@ app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
 
   try {
     const ai = new GoogleGenAI({ apiKey: googleKey });
-    const job = await ai.batches.get({ name });
+    const job = await Promise.race([
+      ai.batches.get({ name }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Gemini status check timed out — job still running')), 90000)
+      ),
+    ]);
 
     if (job.state === 'JOB_STATE_SUCCEEDED') {
       const responses = (job.dest && job.dest.inlinedResponses) || [];
