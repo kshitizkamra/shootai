@@ -637,13 +637,15 @@ async function checkBatchState(googleKey, name) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20000);
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/${name}?fields=state%2Cerror`;
-    const res = await fetch(url, {
-      headers: { 'x-goog-api-key': googleKey },
-      signal: controller.signal,
-    });
+    // Use ?key= query param — more reliable than x-goog-api-key header for REST
+    const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}&fields=state%2Cerror`;
+    const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timer);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (res.status === 404) return 'JOB_STATE_NOT_FOUND';
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
+    }
     const data = await res.json();
     return data.state || 'JOB_STATE_RUNNING';
   } finally {
@@ -702,15 +704,45 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
   }
 }
 
-// Status check background task — fast, then triggers download if SUCCEEDED
+// Status check background task — fast REST check, falls back to SDK on failure
 async function fetchAndCacheBatchResults(googleKey, name, uid, jobId) {
   console.log(`[batch-bg] Status check for ${jobId}`);
   try {
-    const state = await checkBatchState(googleKey, name);
-    console.log(`[batch-bg] ${jobId} state=${state}`);
+    let state;
+    try {
+      state = await checkBatchState(googleKey, name);
+      console.log(`[batch-bg] ${jobId} state=${state} (REST)`);
+    } catch (restErr) {
+      // REST check failed — fall back to SDK call
+      console.warn(`[batch-bg] REST check failed for ${jobId} (${restErr.message}), using SDK`);
+      const ai = new GoogleGenAI({ apiKey: googleKey });
+      const job = await ai.batches.get({ name });
+      state = job.state || 'JOB_STATE_RUNNING';
+      console.log(`[batch-bg] ${jobId} state=${state} (SDK fallback)`);
+    }
 
-    // Always update the cached state immediately
+    // Job doesn't exist on Gemini — mark failed so it stops polling
+    if (state === 'JOB_STATE_NOT_FOUND') {
+      console.warn(`[batch-bg] Job ${jobId} not found on Gemini — marking failed`);
+      writeUserStore(uid, `batch_state_${jobId}`, { state: 'JOB_STATE_FAILED', ts: Date.now() });
+      // Clear credit reservation (no credits were deducted, just free the reserved count)
+      const metaNF = readUserStore(uid, `batch_meta_${jobId}`);
+      if (metaNF && !metaNF.creditsClaimed) {
+        writeUserStore(uid, `batch_meta_${jobId}`, { ...metaNF, creditsClaimed: true });
+      }
+      return;
+    }
+
+    // Always update cached state immediately
     writeUserStore(uid, `batch_state_${jobId}`, { state, ts: Date.now() });
+
+    // Clear credit reservation for terminal failure/cancel states
+    if (['JOB_STATE_FAILED', 'JOB_STATE_CANCELLED', 'JOB_STATE_CANCELLING'].includes(state)) {
+      const metaFail = readUserStore(uid, `batch_meta_${jobId}`);
+      if (metaFail && !metaFail.creditsClaimed) {
+        writeUserStore(uid, `batch_meta_${jobId}`, { ...metaFail, creditsClaimed: true });
+      }
+    }
 
     // If succeeded, kick off image download (separate background task)
     if (state === 'JOB_STATE_SUCCEEDED') {

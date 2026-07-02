@@ -93,7 +93,7 @@ export async function getHistory() {
 export async function addHistoryEntry(entry) {
   const history = await getHistory();
   history.unshift({ ...entry, id: `gen_${Date.now()}`, createdAt: new Date().toISOString() });
-  await getAPI().storeSet('history', history.slice(0, 200));
+  await getAPI().storeSet('history', history.slice(0, 40));
   return history;
 }
 
