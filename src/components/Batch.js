@@ -77,6 +77,14 @@ export default function Batch() {
     for (const job of active) {
       try {
         const updated = await pollBatchJob(job.name);
+
+        // If server resolved a temp name to a real Gemini name, migrate the record
+        if (updated.name && updated.name !== job.name && !updated.name.startsWith('submitting/')) {
+          await deleteBatchJob(job.name);
+          await saveBatchJob({ ...job, ...updated, name: updated.name });
+          continue;
+        }
+
         const merged = { ...job, ...updated };
         // Auto-save results to History when job first succeeds
         if (updated.state === 'JOB_STATE_SUCCEEDED' && updated.results?.length) {

@@ -560,6 +560,48 @@ app.post('/api/ai/openai-edit', requireAuth, requireActive, async (req, res) => 
 // ── Gemini batch (1 credit per successful image) ───────────────────────────
 // Uses @google/genai SDK — matches desktop electron.js exactly
 
+// Per-user lock: prevents duplicate Gemini batch jobs from double-clicks or retries
+const activeSubmissions = new Set();
+
+// Background task: calls ai.batches.create() and maps temp → real job name.
+// The HTTP endpoint responds immediately with a temp name so the client isn't
+// blocked waiting for Gemini to accept (potentially minutes of) image data.
+async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, itemCount, userId) {
+  try {
+    const ai = new GoogleGenAI({ apiKey: googleKey });
+    const job = await ai.batches.create({
+      model: 'models/gemini-3.1-flash-image',
+      src: inlinedRequests,
+      config: { displayName: `shootai_${Date.now()}` },
+    });
+    const realJobId = job.name.split('/').pop();
+    // Save real job metadata for credit tracking
+    writeUserStore(uid, `batch_meta_${realJobId}`, {
+      name: job.name,
+      itemCount,
+      creditsClaimed: false,
+      userId,
+    });
+    // Map temp → real name, and clear temp credit reservation
+    writeUserStore(uid, `batch_tempmap_${tempId}`, { realName: job.name });
+    const tempMeta = readUserStore(uid, `batch_meta_${tempId}`);
+    if (tempMeta && !tempMeta.creditsClaimed) {
+      writeUserStore(uid, `batch_meta_${tempId}`, { ...tempMeta, creditsClaimed: true });
+    }
+    console.log(`[batch-submit] temp=${tempId} → real=${realJobId}`);
+  } catch (e) {
+    console.error(`[batch-submit error] temp=${tempId}`, e.message);
+    writeUserStore(uid, `batch_tempmap_${tempId}`, { failed: true, error: e.message });
+    // Clear temp credit reservation on failure
+    const tempMeta = readUserStore(uid, `batch_meta_${tempId}`);
+    if (tempMeta && !tempMeta.creditsClaimed) {
+      writeUserStore(uid, `batch_meta_${tempId}`, { ...tempMeta, creditsClaimed: true });
+    }
+  } finally {
+    activeSubmissions.delete(uid); // release lock
+  }
+}
+
 app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, res) => {
   const { requests } = req.body;
   const { googleKey } = getGlobalApiKeys();
@@ -582,11 +624,8 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: googleKey });
-
-    // Build inlinedRequests and immediately clear the source from memory
-    // to avoid holding two copies of all image data simultaneously
-    const rawRequests = requests || [];
+    // Build inlinedRequests and immediately clear source from memory
+    const rawRequests = [...(requests || [])];
     req.body = null; // allow GC to collect parsed request body
     const inlinedRequests = rawRequests.map(r => {
       const parts = [{ text: r.prompt }];
@@ -608,21 +647,29 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
       };
     });
 
-    const job = await ai.batches.create({
-      model: 'models/gemini-3.1-flash-image',
-      src: inlinedRequests,
-      config: { displayName: `shootai_${Date.now()}` },
-    });
+    // Prevent double-submission (double-click, nginx timeout retry, etc.)
+    if (activeSubmissions.has(uid)) {
+      return res.status(429).json({ error: 'A batch is already being submitted. Please wait a moment.' });
+    }
+    activeSubmissions.add(uid);
 
-    // Store metadata so credits can be deducted once on success
-    writeUserStore(uid, `batch_meta_${job.name.split('/').pop()}`, {
-      name: job.name,
-      itemCount: (requests || []).length,
+    // Generate a temp name — client stores this immediately, no waiting
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+    const tempName = `submitting/${tempId}`;
+
+    // Reserve credits using temp ID so the counter stays accurate
+    writeUserStore(uid, `batch_meta_${tempId}`, {
+      name: tempName,
+      itemCount: rawRequests.length,
       creditsClaimed: false,
       userId: isAdmin ? null : req.userId,
     });
 
-    res.json({ name: job.name, state: job.state || 'JOB_STATE_PENDING', createTime: job.createTime });
+    // Fire-and-forget — the real Gemini call happens in background (lock released in finally)
+    createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, rawRequests.length, isAdmin ? null : req.userId);
+
+    // Respond immediately so the client isn't blocked
+    res.json({ name: tempName, state: 'JOB_STATE_PENDING', createTime: new Date().toISOString() });
   } catch (e) {
     res.status(500).json({ error: e.message || String(e) });
   }
@@ -632,24 +679,16 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
 // Keys: `${uid}:${jobId}` for status checks, `${uid}:${jobId}:dl` for image downloads
 const ongoingBatchFetches = new Map();
 
-// Phase 1: Fast status-only check via REST with field mask — no image download
+// Phase 1: Fast status-only check via REST with field mask — no image download.
+// Uses axios (not fetch) so it works on Node 14/16 where fetch isn't global.
 async function checkBatchState(googleKey, name) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 20000);
+  const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}&fields=state%2Cerror`;
   try {
-    // Use ?key= query param — more reliable than x-goog-api-key header for REST
-    const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}&fields=state%2Cerror`;
-    const res = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-    if (res.status === 404) return 'JOB_STATE_NOT_FOUND';
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
-    }
-    const data = await res.json();
+    const { data } = await axios.get(url, { timeout: 20000 });
     return data.state || 'JOB_STATE_RUNNING';
-  } finally {
-    clearTimeout(timer);
+  } catch (e) {
+    if (e.response?.status === 404) return 'JOB_STATE_NOT_FOUND';
+    throw new Error(`REST check failed: ${e.response?.status || e.code || e.message}`);
   }
 }
 
@@ -760,12 +799,23 @@ async function fetchAndCacheBatchResults(googleKey, name, uid, jobId) {
 }
 
 app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
-  const { name } = req.body;
+  let { name } = req.body;
   const { googleKey } = getGlobalApiKeys();
   if (!googleKey) return res.status(400).json({ error: 'Service not configured. Contact admin.' });
 
   const isAdmin = req.userRole === 'admin';
   const uid = isAdmin ? 'admin' : req.userId;
+
+  // Handle temp names — batch still being submitted to Gemini in background
+  if (name && name.startsWith('submitting/')) {
+    const tempId = name.split('/')[1];
+    const tempMap = readUserStore(uid, `batch_tempmap_${tempId}`);
+    if (!tempMap) return res.json({ name, state: 'JOB_STATE_PENDING' }); // still uploading to Gemini
+    if (tempMap.failed) return res.json({ name, state: 'JOB_STATE_FAILED', error: tempMap.error });
+    // Real name resolved — tell the client so it can migrate the record, then continue with real check
+    name = tempMap.realName;
+  }
+
   const jobId = name.split('/').pop();
 
   // 1. Serve from results cache — job fully done
