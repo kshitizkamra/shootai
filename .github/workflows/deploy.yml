@@ -23,6 +23,7 @@ jobs:
 
             cd ~/shootai
             git pull origin master
+            pm2 stop shootai || true
             npm install
             npm run build
             cd ~/shootai/server
