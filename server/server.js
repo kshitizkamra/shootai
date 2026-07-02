@@ -679,13 +679,15 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
 // Keys: `${uid}:${jobId}` for status checks, `${uid}:${jobId}:dl` for image downloads
 const ongoingBatchFetches = new Map();
 
-// Phase 1: Fast status-only check via REST with field mask — no image download.
+// Phase 1: Fast status-only check via REST — no image download.
 // Uses axios (not fetch) so it works on Node 14/16 where fetch isn't global.
+// No field mask — field masks can strip the state field causing silent RUNNING fallback.
 async function checkBatchState(googleKey, name) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}&fields=state%2Cerror`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}`;
   try {
     const { data } = await axios.get(url, { timeout: 20000 });
-    return data.state || 'JOB_STATE_RUNNING';
+    if (!data.state) throw new Error('API response missing state field');
+    return data.state;
   } catch (e) {
     if (e.response?.status === 404) return 'JOB_STATE_NOT_FOUND';
     throw new Error(`REST check failed: ${e.response?.status || e.code || e.message}`);
@@ -724,11 +726,12 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
     console.log(`[batch-dl] Response keys: ${Object.keys(job || {}).join(', ')}`);
 
     if (job.state === 'JOB_STATE_SUCCEEDED') {
-      // Try all known response paths the Gemini API may use
+      // Correct path per Gemini API: output.inlinedResponses.inlinedResponses (double-nested)
+      // Note: SDK uses 'output' not 'dest' (dest is Vertex AI variant)
       const responses =
+        job?.output?.inlinedResponses?.inlinedResponses ||
+        job?.dest?.inlinedResponses?.inlinedResponses ||
         job?.dest?.inlinedResponses ||
-        job?.inlinedResponses ||
-        job?.response?.inlinedResponses ||
         [];
 
       console.log(`[batch-dl] Found ${responses.length} responses for ${jobId}`);
