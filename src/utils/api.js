@@ -388,11 +388,36 @@ export async function prepareBatchVirtualTryOn({ garmentImageBase64, personImage
 
 // ── Submit batch job ──────────────────────────────────────────────────────
 
+// Resize a base64 image to max `maxPx` on the longest side before upload.
+// Dramatically reduces payload size — Gemini only needs to understand the product,
+// not pixel-perfect full-res images.
+function resizeImageBase64(base64, maxPx = 1024) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const { naturalWidth: w, naturalHeight: h } = img;
+      if (w <= maxPx && h <= maxPx) { resolve(base64); return; }
+      const scale = maxPx / Math.max(w, h);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => resolve(base64); // fallback: send original
+    img.src = base64;
+  });
+}
+
 export async function submitBatchJob(items) {
-  const requests = items.map(item => ({
-    prompt: item.prompt,
-    images: item.images,
-    aspectRatio: item.aspectRatio || '3:4',
+  // Resize all reference images in parallel before sending — keeps payload small
+  const requests = await Promise.all(items.map(async item => {
+    const resizedImages = await Promise.all((item.images || []).map(img => resizeImageBase64(img, 1024)));
+    return {
+      prompt: item.prompt,
+      images: resizedImages,
+      aspectRatio: item.aspectRatio || '3:4',
+    };
   }));
   return await api.geminiBatchCreate({ requests });
 }
