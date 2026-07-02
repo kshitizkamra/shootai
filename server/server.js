@@ -692,19 +692,55 @@ async function checkBatchState(googleKey, name) {
   }
 }
 
-// Phase 2: Full image download — only runs after state is confirmed SUCCEEDED
+// Phase 2: Full image download — only runs after state is confirmed SUCCEEDED.
+// Uses axios directly (not SDK) to avoid potential Node-version or OOM issues
+// with the SDK's batches.get() bundling everything into one response.
+// Tracks failures — after 3 attempts, gives up to prevent infinite DOWNLOADING loop.
 async function downloadBatchImages(googleKey, name, uid, jobId) {
-  console.log(`[batch-dl] Downloading images for ${jobId}`);
+  const failKey = `${uid}:${jobId}:fails`;
+  const failCount = ongoingBatchFetches.get(failKey) || 0;
+
+  // After 3 failed attempts, stop retrying and save empty results so UI unblocks
+  if (failCount >= 3) {
+    console.error(`[batch-dl] Job ${jobId} failed ${failCount} times — saving empty results`);
+    writeUserStore(uid, `batch_results_${jobId}`, []);
+    const meta = readUserStore(uid, `batch_meta_${jobId}`);
+    if (meta && !meta.creditsClaimed) {
+      writeUserStore(uid, `batch_meta_${jobId}`, { ...meta, creditsClaimed: true });
+    }
+    ongoingBatchFetches.delete(failKey);
+    ongoingBatchFetches.delete(`${uid}:${jobId}:dl`);
+    return;
+  }
+
+  console.log(`[batch-dl] Downloading images for ${jobId} (attempt ${failCount + 1})`);
   try {
-    const ai = new GoogleGenAI({ apiKey: googleKey });
-    const job = await ai.batches.get({ name });
+    // Use axios directly — avoids SDK's potential OOM on large inline responses
+    // and works on all Node versions. 5-minute timeout for large batches.
+    const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}`;
+    const { data: job } = await axios.get(url, { timeout: 300000, maxContentLength: 500 * 1024 * 1024 });
+
+    console.log(`[batch-dl] Got response for ${jobId}, state=${job.state}`);
+    console.log(`[batch-dl] Response keys: ${Object.keys(job || {}).join(', ')}`);
 
     if (job.state === 'JOB_STATE_SUCCEEDED') {
-      const responses = (job.dest && job.dest.inlinedResponses) || [];
+      // Try all known response paths the Gemini API may use
+      const responses =
+        job?.dest?.inlinedResponses ||
+        job?.inlinedResponses ||
+        job?.response?.inlinedResponses ||
+        [];
+
+      console.log(`[batch-dl] Found ${responses.length} responses for ${jobId}`);
+
       const results = responses.map(r => {
-        const parts = r.response?.candidates?.[0]?.content?.parts || [];
+        // Gemini may nest under r.response or directly under r
+        const parts =
+          r?.response?.candidates?.[0]?.content?.parts ||
+          r?.candidates?.[0]?.content?.parts ||
+          [];
         for (const part of parts) {
-          if (part.inlineData?.data) {
+          if (part?.inlineData?.data) {
             return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
           }
         }
@@ -735,9 +771,11 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
         writeUserStore(uid, `batch_meta_${jobId}`, { ...meta, creditsClaimed: true });
       }
       console.log(`[batch-dl] Job ${jobId} — cached ${results.filter(Boolean).length} results`);
+      ongoingBatchFetches.delete(failKey); // clear fail count on success
     }
   } catch (e) {
-    console.error(`[batch-dl error] job=${jobId}`, e.message);
+    console.error(`[batch-dl error] job=${jobId} attempt=${failCount + 1}:`, e.message);
+    ongoingBatchFetches.set(failKey, failCount + 1); // track failure
   } finally {
     ongoingBatchFetches.delete(`${uid}:${jobId}:dl`);
   }
