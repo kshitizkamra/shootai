@@ -689,10 +689,10 @@ function normalizeState(s) {
 
 // Phase 1: Fast status-only check via REST — no image download.
 // Uses axios (not fetch) so it works on Node 14/16 where fetch isn't global.
-// No field mask — field masks can strip the state field causing silent RUNNING fallback.
-// Cache-busting param + no-cache headers prevent GCE network layers from returning stale responses.
+// No-cache headers prevent GCE network layers from returning stale responses.
+// Note: Gemini REST API returns an LRO object { done, response } not a direct Batch object.
 async function checkBatchState(googleKey, name) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}&_cb=${Date.now()}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}`;
   try {
     const { data } = await axios.get(url, {
       timeout: 20000,
@@ -702,7 +702,13 @@ async function checkBatchState(googleKey, name) {
         'Expires': '0',
       },
     });
-    if (!data.state) throw new Error('API response missing state field');
+    // Google returns LRO format: { done: bool, response: { state, output }, error: {...} }
+    if (data.done !== undefined) {
+      if (data.error) throw new Error(data.error.message);
+      return data.done ? 'JOB_STATE_SUCCEEDED' : 'JOB_STATE_RUNNING';
+    }
+    // Direct batch format fallback
+    if (!data.state) throw new Error("API response missing both 'state' and 'done' fields.");
     return normalizeState(data.state);
   } catch (e) {
     if (e.response?.status === 404) return 'JOB_STATE_NOT_FOUND';
@@ -738,16 +744,23 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
     const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}`;
     const { data: job } = await axios.get(url, { timeout: 300000, maxContentLength: 500 * 1024 * 1024 });
 
-    console.log(`[batch-dl] Got response for ${jobId}, state=${job.state}`);
+    console.log(`[batch-dl] Got response for ${jobId}, state=${job.state}, done=${job.done}`);
     console.log(`[batch-dl] Response keys: ${Object.keys(job || {}).join(', ')}`);
 
-    if (normalizeState(job.state) === 'JOB_STATE_SUCCEEDED') {
-      // Correct path per Gemini API: output.inlinedResponses.inlinedResponses (double-nested)
-      // Note: SDK uses 'output' not 'dest' (dest is Vertex AI variant)
+    // Unwrap LRO: Google returns { done: bool, response: { state, output } }
+    // If done=false, job is still running — nothing to extract yet
+    const batchJob = (job.done !== undefined) ? job.response : job;
+    if (!batchJob) {
+      console.log(`[batch-dl] Job ${jobId} LRO not done yet — skipping`);
+      ongoingBatchFetches.delete(`${uid}:${jobId}:dl`);
+      return;
+    }
+
+    const isComplete = job.done === true || normalizeState(batchJob.state) === 'JOB_STATE_SUCCEEDED';
+    if (isComplete) {
       const responses =
-        job?.output?.inlinedResponses?.inlinedResponses ||
-        job?.dest?.inlinedResponses?.inlinedResponses ||
-        job?.dest?.inlinedResponses ||
+        batchJob?.output?.inlinedResponses?.inlinedResponses ||
+        batchJob?.inlinedResponses?.inlinedResponses ||
         [];
 
       console.log(`[batch-dl] Found ${responses.length} responses for ${jobId}`);
