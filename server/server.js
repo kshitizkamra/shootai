@@ -679,15 +679,31 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
 // Keys: `${uid}:${jobId}` for status checks, `${uid}:${jobId}:dl` for image downloads
 const ongoingBatchFetches = new Map();
 
+// Normalize state strings — REST API sometimes returns short form e.g. "SUCCEEDED"
+// instead of "JOB_STATE_SUCCEEDED". This ensures all downstream checks work either way.
+function normalizeState(s) {
+  if (!s) return s;
+  if (!s.startsWith('JOB_STATE_')) return 'JOB_STATE_' + s;
+  return s;
+}
+
 // Phase 1: Fast status-only check via REST — no image download.
 // Uses axios (not fetch) so it works on Node 14/16 where fetch isn't global.
 // No field mask — field masks can strip the state field causing silent RUNNING fallback.
+// Cache-busting param + no-cache headers prevent GCE network layers from returning stale responses.
 async function checkBatchState(googleKey, name) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}&_cb=${Date.now()}`;
   try {
-    const { data } = await axios.get(url, { timeout: 20000 });
+    const { data } = await axios.get(url, {
+      timeout: 20000,
+      headers: {
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+      },
+    });
     if (!data.state) throw new Error('API response missing state field');
-    return data.state;
+    return normalizeState(data.state);
   } catch (e) {
     if (e.response?.status === 404) return 'JOB_STATE_NOT_FOUND';
     throw new Error(`REST check failed: ${e.response?.status || e.code || e.message}`);
@@ -725,7 +741,7 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
     console.log(`[batch-dl] Got response for ${jobId}, state=${job.state}`);
     console.log(`[batch-dl] Response keys: ${Object.keys(job || {}).join(', ')}`);
 
-    if (job.state === 'JOB_STATE_SUCCEEDED') {
+    if (normalizeState(job.state) === 'JOB_STATE_SUCCEEDED') {
       // Correct path per Gemini API: output.inlinedResponses.inlinedResponses (double-nested)
       // Note: SDK uses 'output' not 'dest' (dest is Vertex AI variant)
       const responses =
