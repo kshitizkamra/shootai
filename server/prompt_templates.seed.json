@@ -33,7 +33,7 @@
     "pose_action_without_pose": "Action: editorial lifestyle pose — creative, natural, and expressive. The model should look candid and editorial, not stiff. Mood: aspirational fashion campaign."
   },
   "e_detail_closeup": {
-    "action": "Action: ZOOM INTO THE ACTUAL GARMENT on the model.",
+    "action": "Action: ZOOM INTO THE ACTUAL GARMENT on the model. Any skin, hair, or partial face visible in this tight crop MUST belong to the exact same person from reference image 1 — do NOT generate a different person's face, neck, or body for this close-up.",
     "body": "Do NOT reimagine, reconstruct, add, or exaggerate any garment detail. Do not over-emphasize seams or stitching beyond what is visible in the reference. Do NOT add smocking, gathering, shirring, elastic, ruffles, or any embellishment at the waist or any other area that is not clearly visible in the reference images — if the garment has a plain seam at the waist, keep it as a plain seam. CRITICAL: The garment color must exactly match the color in all reference images — do not shift, darken, or alter the hue in any way. FOOTWEAR NOTE: Do NOT alter the framing of this shot to show footwear — only include footwear if feet fall naturally within the detail area being shown. Do not zoom out or reframe to accommodate shoes."
   },
   "e_category_actions": {
