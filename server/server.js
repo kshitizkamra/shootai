@@ -1005,4 +1005,16 @@ async function fetchAndCacheBatchResults(googleKey, name, uid, jobId) {
       const dlKey = `${uid}:${jobId}:dl`;
       if (!ongoingBatchFetches.has(dlKey)) {
         ongoingBatchFetches.set(dlKey, true);
-        downloadBatchImages(googleKey, name, uid, jobId); 
+        downloadBatchImages(googleKey, name, uid, jobId);
+      }
+    }
+  } catch (e) {
+    console.error(`[batch-bg error] job=${jobId}:`, e.message);
+  }
+}
+
+// ── Start ──────────────────────────────────────────────────────────────────
+
+app.listen(PORT, () => {
+  console.log(`ShootAI server running on port ${PORT}`);
+});
