@@ -83,5 +83,43 @@
     "Detail Close-Up": "Action: ZOOM INTO THE ACTUAL GARMENT on the model — crop tightly to the specified area or the most detail-rich part of the outfit. The model wearing the garment MUST be the exact same woman from MODEL reference image 1 — same face, same skin tone, same body. Do NOT use the person from any product reference image. Do NOT reimagine, reconstruct, add, or exaggerate any garment detail. Do not over-emphasize seams or stitching beyond what is visible in the reference. Do NOT add smocking, gathering, shirring, elastic, ruffles, or any embellishment at the waist or any other area that is not clearly visible in the reference images — if the garment has a plain seam at the waist, keep it as a plain seam. CRITICAL: The garment color must exactly match the color in all reference images — do not shift, darken, or alter the hue in any way. FOOTWEAR NOTE: Do NOT alter the framing of this shot to show footwear — only include footwear if feet fall naturally within the detail area being shown. Do not zoom out or reframe to accommodate shoes. LIGHTING: Lighting intensity, color temperature, and overall brightness must be identical to every other shot in this set."
   },
   "b_core_prompt": "GARMENT: Reproduce exact garment from reference image 2 — every design detail, color, and construction accurate.",
-  "d_core_prompt": "The garment should fit naturally on the person's body."
+  "d_core_prompt": "The garment should fit naturally on the person's body.",
+  "lighting_presets": [
+    {
+      "id": "studio_soft",
+      "name": "Studio — Soft Diffused",
+      "lighting": "LIGHTING: Soft, even, diffused studio lighting with no strong directional source. Consistent brightness and color temperature across the entire figure. No harsh shadows. The model must look naturally and evenly lit from all sides within a studio environment.",
+      "shadow": "SHADOW: A soft, subtle shadow falls directly below the model's feet onto the studio floor — close to the body, minimal spread, no strong directional cast. This gently anchors the model to the ground."
+    },
+    {
+      "id": "natural_ambient",
+      "name": "Natural Ambient",
+      "lighting": "LIGHTING: Natural indoor ambient light — soft, slightly warm, with no dominant single light source. Light wraps gently around the model from multiple directions as it would in a well-lit interior space. The model must look naturally lit within the scene, as if physically standing in the room.",
+      "shadow": "SHADOW: A soft, diffused shadow falls below and slightly behind the model's feet, consistent with gentle ambient lighting from above. No harsh edges — the shadow blends naturally into the floor surface and anchors the model to the ground."
+    },
+    {
+      "id": "golden_hour_warm_left",
+      "name": "Golden Hour — Warm, Left",
+      "lighting": "LIGHTING: Warm golden hour light coming from the left side of the scene. Warm orange-amber color temperature, creating a soft glow on the left side of the model and gentle warm shadows on the right. The overall image should feel warm and cinematic.",
+      "shadow": "SHADOW: A warm-toned shadow falls to the right of the model's feet, consistent with a warm light source on the left. The shadow is elongated and soft-edged, following the floor surface naturally."
+    },
+    {
+      "id": "cool_daylight_overcast",
+      "name": "Cool Daylight — Overcast",
+      "lighting": "LIGHTING: Cool, soft overcast daylight — as if shooting on a cloudy day or near a large north-facing window. Even, slightly cool color temperature with no strong directional source. Flattering and clean with soft gradients rather than hard shadows.",
+      "shadow": "SHADOW: A minimal, very soft shadow falls directly below the model's feet. Due to overcast light the shadow has very soft edges and low contrast — subtle but present to anchor the model to the surface."
+    },
+    {
+      "id": "dramatic_side_light",
+      "name": "Dramatic Side Light",
+      "lighting": "LIGHTING: Strong, dramatic directional light from the left side. Bold contrast between the lit left side of the model and the shadowed right side. Slightly warm-neutral color temperature. Creates a high-fashion, editorial mood.",
+      "shadow": "SHADOW: A strong, defined shadow falls to the right of the model's feet, consistent with a dominant light source from the left. The shadow has visible edges and extends noticeably to the right across the floor surface."
+    },
+    {
+      "id": "soft_window_light",
+      "name": "Soft Window Light",
+      "lighting": "LIGHTING: Soft, gentle light from a window on the left side of the scene. Natural, slightly warm color temperature. Creates a gentle gradation from lit (left) to slightly shadowed (right) on the model. Feels intimate and natural — not harsh or dramatic.",
+      "shadow": "SHADOW: A soft, feathered shadow falls gently to the right of the model's feet, consistent with soft window light from the left. The shadow has a gradual, diffused edge that fades into the floor surface naturally."
+    }
+  ]
 }

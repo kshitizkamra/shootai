@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getModels, getBackgrounds, getPoses, addHistoryEntry, getSettings, saveSettings } from '../utils/storage';
-import { generatePDPShotE, prepareBatchPDPShotE } from '../utils/api';
+import { generatePDPShotE, prepareBatchPDPShotE, getPromptTemplates } from '../utils/api';
 import { addManyToBatchQueue } from '../utils/batchQueue';
 import GenerationOptions from './GenerationOptions';
 import { getResolution } from '../utils/constants';
@@ -81,6 +81,8 @@ export default function WorkflowE({ onBack, onNavigate }) {
 
   const [globalInstruction, setGlobalInstruction] = useState('');
   const [shotInstructions, setShotInstructions] = useState({});
+  const [lightingPresets, setLightingPresets] = useState([]);
+  const [lightingPresetId, setLightingPresetId] = useState('studio_soft');
 
   const [generating, setGenerating] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -103,6 +105,10 @@ export default function WorkflowE({ onBack, onNavigate }) {
       setResolution(s.defaultResolution || '1080x1440');
       if (s.pdpGlobalInstruction) setGlobalInstruction(s.pdpGlobalInstruction);
       if (s.pdpShotInstructions) setShotInstructions(s.pdpShotInstructions);
+      if (s.pdpLightingPresetId) setLightingPresetId(s.pdpLightingPresetId);
+    });
+    getPromptTemplates().then(t => {
+      if (t.lighting_presets?.length) setLightingPresets(t.lighting_presets);
     });
   }, []);
 
@@ -111,10 +117,10 @@ export default function WorkflowE({ onBack, onNavigate }) {
   useEffect(() => {
     if (!instructionsMounted.current) { instructionsMounted.current = true; return; }
     const t = setTimeout(() => {
-      getSettings().then(s => saveSettings({ ...s, pdpGlobalInstruction: globalInstruction, pdpShotInstructions: shotInstructions }));
+      getSettings().then(s => saveSettings({ ...s, pdpGlobalInstruction: globalInstruction, pdpShotInstructions: shotInstructions, pdpLightingPresetId: lightingPresetId }));
     }, 1000);
     return () => clearTimeout(t);
-  }, [globalInstruction, shotInstructions]);
+  }, [globalInstruction, shotInstructions, lightingPresetId]);
 
   // ── Product helpers ───────────────────────────────────────────────────────
   function addProduct() {
@@ -233,6 +239,7 @@ export default function WorkflowE({ onBack, onNavigate }) {
             shotInstruction: shotInstructions[shotType] || '',
             quality: 'medium', apiSize: res.apiSize, resolution,
             skipGemini: skipGeminiRef.current,
+            lightingPresetId,
           });
           setResults(prev => ({ ...prev, [key]: { status: 'done', base64: generated, error: '', saved: false } }));
         } catch (e) {
@@ -324,6 +331,7 @@ export default function WorkflowE({ onBack, onNavigate }) {
           detailNote, globalInstruction,
           shotInstruction: shotInstructions[shotType] || '',
           quality: 'low', resolution,
+          lightingPresetId,
           label: `PDP-E — ${product.name} — ${shot}`,
           meta: {
             model: selectedModel?.name || 'Unknown',
@@ -561,6 +569,18 @@ export default function WorkflowE({ onBack, onNavigate }) {
             </div>
           </div>
         </div>
+
+        {/* Lighting & Shadow Style */}
+        {lightingPresets.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <label className="form-label" style={{ fontSize: 12 }}>Lighting &amp; Shadow Style — applies to all shots in this batch</label>
+            <select className="form-input" value={lightingPresetId} onChange={e => setLightingPresetId(e.target.value)} style={{ fontSize: 12 }}>
+              {lightingPresets.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Global instruction */}
         <div style={{ marginBottom: 16 }}>

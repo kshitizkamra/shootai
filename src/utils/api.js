@@ -453,11 +453,11 @@ export async function cancelBatchJob(name) {
 
 // ── Workflow E: Category-aware PDP Shoot ─────────────────────────────────
 
-async function buildShotPromptE(shotType, category, hasPose = false, t) {
+async function buildShotPromptE(shotType, category, hasPose = false, t, lightingPreset = null) {
   const cat = category || 'full_outfit';
   const identity = (t.model_identity||{})[shotType] || (t.model_identity||{})['Front'] || '';
-  const lighting = (t.e_shared||{}).lighting || '';
-  const shadow = (t.e_shared||{}).shadow || '';
+  const lighting = lightingPreset?.lighting || (t.e_shared||{}).lighting || '';
+  const shadow = lightingPreset?.shadow || (t.e_shared||{}).shadow || '';
   const bgLock = (t.e_shared||{}).bgLock || '';
   const framingLock = (t.e_shared||{}).framingLock || '';
 
@@ -478,8 +478,9 @@ async function buildShotPromptE(shotType, category, hasPose = false, t) {
   return `${(t.garment_orientation||{})[shotType] ? (t.garment_orientation||{})[shotType] + ' ' : ''}${identity} ${action} ${(t.global||{}).garment_shape_lock || ''} ${(t.global||{}).print_lock_angle || ''} ${bgLock} ${lighting} ${extraShadow} ${framingLock}`.trim();
 }
 
-export async function generatePDPShotE({ modelImageBase64, productImagesBase64, backgroundImageBase64, poseImageBase64, shotType, productName, category, modelBodyType, modelDescription, detailNote, globalInstruction, shotInstruction, quality, apiSize, resolution, skipGemini }) {
+export async function generatePDPShotE({ modelImageBase64, productImagesBase64, backgroundImageBase64, poseImageBase64, shotType, productName, category, modelBodyType, modelDescription, detailNote, globalInstruction, shotInstruction, quality, apiSize, resolution, skipGemini, lightingPresetId }) {
   const t = await getPromptTemplates();
+  const lightingPreset = (t.lighting_presets || []).find(p => p.id === lightingPresetId) || null;
   const settings = await getSettings();
   const q = quality || settings.defaultQuality || 'high';
   const sz = apiSize || '1024x1536';
@@ -492,7 +493,7 @@ export async function generatePDPShotE({ modelImageBase64, productImagesBase64, 
   if (effectivePose) images.push(effectivePose);
   const poseIdx = effectivePose ? images.length : null;
 
-  let shotPrompt = await buildShotPromptE(shotType, category, !!effectivePose, t);
+  let shotPrompt = await buildShotPromptE(shotType, category, !!effectivePose, t, lightingPreset);
   if (shotType === 'Detail Close-Up' && detailNote) {
     shotPrompt += ` CROP AREA: Show ONLY from ${detailNote} — frame the image tightly to this region. Do NOT show the full body. Do NOT show areas outside this crop zone.`;
   }
@@ -531,9 +532,10 @@ Premium D2C fashion brand photography quality.
   return await api.multiImageGenerate({ apiKey, images, prompt, quality: q, size: sz });
 }
 
-export async function prepareBatchPDPShotE({ modelImageBase64, productImagesBase64, backgroundImageBase64, poseImageBase64, shotType, productName, category, modelBodyType, modelDescription, detailNote, globalInstruction, shotInstruction, quality, resolution, label, model: modelOverride, meta, _settings }) {
+export async function prepareBatchPDPShotE({ modelImageBase64, productImagesBase64, backgroundImageBase64, poseImageBase64, shotType, productName, category, modelBodyType, modelDescription, detailNote, globalInstruction, shotInstruction, quality, resolution, label, model: modelOverride, meta, _settings, lightingPresetId }) {
   const t = await getPromptTemplates();
   const settings = _settings || await getSettings();
+  const lightingPreset = (t.lighting_presets || []).find(p => p.id === lightingPresetId) || null;
   const model = modelOverride || settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
   const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
 
@@ -544,7 +546,7 @@ export async function prepareBatchPDPShotE({ modelImageBase64, productImagesBase
   if (effectivePose) images.push(effectivePose);
   const poseIdx = effectivePose ? images.length : null;
 
-  let shotPrompt = await buildShotPromptE(shotType, category, !!effectivePose, t);
+  let shotPrompt = await buildShotPromptE(shotType, category, !!effectivePose, t, lightingPreset);
   if (shotType === 'Detail Close-Up' && detailNote) {
     shotPrompt += ` CROP AREA: Show ONLY from ${detailNote} — frame the image tightly to this region. Do NOT show the full body. Do NOT show areas outside this crop zone.`;
   }
