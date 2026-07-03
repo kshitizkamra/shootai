@@ -428,39 +428,6 @@ app.post('/api/store/:key', requireAuth, requireActive, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-
-// ── Prompt Templates ──────────────────────────────────────────────────────
-
-const PROMPT_TEMPLATES_FILE = path.join(DATA_DIR, 'prompt_templates.json');
-const PROMPT_TEMPLATES_SEED = path.join(__dirname, 'prompt_templates.seed.json');
-
-if (!fs.existsSync(PROMPT_TEMPLATES_FILE) && fs.existsSync(PROMPT_TEMPLATES_SEED)) {
-  fs.copyFileSync(PROMPT_TEMPLATES_SEED, PROMPT_TEMPLATES_FILE);
-  console.log('[server] prompt_templates.json seeded from seed file');
-}
-
-function readPromptTemplates() {
-  try {
-    if (fs.existsSync(PROMPT_TEMPLATES_FILE)) {
-      return JSON.parse(fs.readFileSync(PROMPT_TEMPLATES_FILE, 'utf8'));
-    }
-  } catch {}
-  return null;
-}
-
-app.get('/api/prompt-templates', requireAuth, (req, res) => {
-  const t = readPromptTemplates();
-  if (!t) return res.status(404).json({ error: 'Templates not found' });
-  res.json(t);
-});
-
-app.put('/api/admin/prompt-templates', requireAdmin, (req, res) => {
-  try {
-    fs.writeFileSync(PROMPT_TEMPLATES_FILE, JSON.stringify(req.body, null, 2));
-    res.json({ ok: true });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
-
 // ── AI routes ──────────────────────────────────────────────────────────────
 
 app.post('/api/ai/test-connection', requireAdmin, async (req, res) => {
