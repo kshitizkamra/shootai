@@ -37,4 +37,4 @@ jobs:
               echo "nginx updated with client_max_body_size 250m"
             fi
 
-            echo "Deploy complete"
+            echo "Deploy complete" # v2
