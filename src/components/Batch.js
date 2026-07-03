@@ -28,6 +28,7 @@ export default function Batch() {
   const [lightbox, setLightbox] = useState(null); // { src, label }
   const hasActiveRef = useRef(false);
   const savedToHistoryRef = useRef(new Set());
+  const isSubmittingRef = useRef(false); // ref guard — survives re-renders, prevents double-call
 
   const loadQueue = useCallback(async () => {
     const q = await getBatchQueue();
@@ -122,8 +123,10 @@ export default function Batch() {
   }
 
   async function handleSubmitBatch() {
+    if (isSubmittingRef.current) return; // ref guard: state update may not re-render in time
     const selectedQueue = queue.filter(item => selectedItems.has(item.id));
     if (selectedQueue.length === 0) return setError('No items selected.');
+    isSubmittingRef.current = true;
     setSubmitting(true);
     setError('');
     try {
@@ -159,6 +162,7 @@ export default function Batch() {
     } catch (e) {
       setError('Submit failed: ' + e.message);
     }
+    isSubmittingRef.current = false;
     setSubmitting(false);
   }
 
