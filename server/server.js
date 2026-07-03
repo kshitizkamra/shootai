@@ -595,8 +595,8 @@ function releaseSubmissionLock(uid) {
 // blocked waiting for Gemini to accept (potentially minutes of) image data.
 async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, itemCount, userId, resolution) {
   try {
-    // attempts:1 = no auto-retry — batches.create is NOT idempotent (retry creates a duplicate batch)
-    const ai = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 1 } } });
+    // attempts:0 = no auto-retry — batches.create is NOT idempotent (retry creates a duplicate batch)
+    const ai = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 0 } } });
     const job = await ai.batches.create({
       model: 'models/gemini-3.1-flash-image',
       src: inlinedRequests,
@@ -626,9 +626,9 @@ async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, item
     if (tempMeta && !tempMeta.creditsClaimed) {
       writeUserStore(uid, `batch_meta_${tempId}`, { ...tempMeta, creditsClaimed: true });
     }
-  } finally {
-    releaseSubmissionLock(uid); // release lock
+    releaseSubmissionLock(uid); // release lock only on failure — success keeps lock for TTL to block replays
   }
+  // No finally — on success the lock expires naturally after SUBMISSION_LOCK_TTL (10 min)
 }
 
 app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, res) => {
@@ -639,6 +639,12 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
   const isAdmin = req.userRole === 'admin';
   const uid = isAdmin ? 'admin' : req.userId;
 
+  // Check lock FIRST — before any heavy CPU work — to close the race window
+  if (hasSubmissionLock(uid)) {
+    return res.status(429).json({ error: 'A batch is already being submitted. Please wait a moment.' });
+  }
+  acquireSubmissionLock(uid);
+
   if (!isAdmin) {
     const user = readUsers().find(u => u.id === req.userId);
     const balance = user?.credits || 0;
@@ -646,6 +652,7 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
     const requested = (requests || []).length;
     const available = balance - reserved;
     if (available < requested) {
+      releaseSubmissionLock(uid); // release — credits check failed, not a real submission
       return res.status(402).json({
         error: `Not enough credits. This batch needs ${requested} credit${requested !== 1 ? 's' : ''}, but you have ${available} available (${balance} total − ${reserved} reserved for running batches).`,
       });
@@ -676,12 +683,6 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
       };
     });
 
-    // Prevent double-submission (double-click, nginx timeout retry, etc.)
-    if (hasSubmissionLock(uid)) {
-      return res.status(429).json({ error: 'A batch is already being submitted. Please wait a moment.' });
-    }
-    acquireSubmissionLock(uid);
-
     // Generate a temp name — client stores this immediately, no waiting
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     const tempName = `submitting/${tempId}`;
@@ -694,13 +695,14 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
       userId: isAdmin ? null : req.userId,
     });
 
-    // Fire-and-forget — the real Gemini call happens in background (lock released in finally)
+    // Fire-and-forget — the real Gemini call happens in background (lock released only on failure)
     const batchResolution = rawRequests[0]?.resolution || '1080x1440';
     createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, rawRequests.length, isAdmin ? null : req.userId, batchResolution);
 
     // Respond immediately so the client isn't blocked
     res.json({ name: tempName, state: 'JOB_STATE_PENDING', createTime: new Date().toISOString() });
   } catch (e) {
+    releaseSubmissionLock(uid); // prep failed — release so user can retry
     res.status(500).json({ error: e.message || String(e) });
   }
 });

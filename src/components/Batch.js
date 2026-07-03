@@ -390,7 +390,7 @@ export default function Batch() {
                   const isActive = ['JOB_STATE_PENDING', 'JOB_STATE_RUNNING', 'JOB_STATE_DOWNLOADING'].includes(job.state);
                   const isDownloading = job.state === 'JOB_STATE_DOWNLOADING';
                   const succeeded = job.state === 'JOB_STATE_SUCCEEDED';
-                  const unsavedCount = succeeded ? (job.results || []).filter((r, i) => r && !(job.savedPaths?.[i])).length : 0;
+                  const unsavedCount = succeeded ? (job.results || []).filter(r => r).length : 0;
                   return (
                     <div key={job.name} className="card">
                       <div className="card-body">
