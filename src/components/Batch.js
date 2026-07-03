@@ -168,7 +168,13 @@ export default function Batch() {
     try {
       const job = jobs.find(j => j.name === name);
       const updated = await pollBatchJob(name);
-      await saveBatchJob({ ...job, ...updated });
+      // If temp name resolved to real Gemini name, migrate — same as pollAllJobs does
+      if (updated.name && updated.name !== name && !updated.name.startsWith('submitting/')) {
+        await deleteBatchJob(name);
+        await saveBatchJob({ ...job, ...updated, name: updated.name });
+      } else {
+        await saveBatchJob({ ...job, ...updated });
+      }
       loadJobs();
     } catch (e) {
       setError('Poll failed: ' + e.message);

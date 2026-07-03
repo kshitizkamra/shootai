@@ -595,8 +595,9 @@ function releaseSubmissionLock(uid) {
 // blocked waiting for Gemini to accept (potentially minutes of) image data.
 async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, itemCount, userId, resolution) {
   try {
-    // attempts:0 = no auto-retry — batches.create is NOT idempotent (retry creates a duplicate batch)
-    const ai = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 0 } } });
+    // attempts:1 = no auto-retry — batches.create is NOT idempotent (retry creates a duplicate batch)
+    // SDK formula: retries = attempts - 1, so attempts:1 → retries:0 → one total attempt
+    const ai = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 1 } } });
     const job = await ai.batches.create({
       model: 'models/gemini-3.1-flash-image',
       src: inlinedRequests,
@@ -626,9 +627,9 @@ async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, item
     if (tempMeta && !tempMeta.creditsClaimed) {
       writeUserStore(uid, `batch_meta_${tempId}`, { ...tempMeta, creditsClaimed: true });
     }
-    releaseSubmissionLock(uid); // release lock only on failure — success keeps lock for TTL to block replays
+  } finally {
+    releaseSubmissionLock(uid); // always release — early lock position closes the race window
   }
-  // No finally — on success the lock expires naturally after SUBMISSION_LOCK_TTL (10 min)
 }
 
 app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, res) => {
