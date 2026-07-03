@@ -765,7 +765,11 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
 
       console.log(`[batch-dl] Found ${responses.length} responses for ${jobId}`);
 
-      const results = responses.map(r => {
+      // Save images as binary files — avoids base64 bloat in JSON and reduces egress ~80%
+      const imgDir = path.join(getUserDataDir(uid), 'batch_images', jobId);
+      if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
+
+      const results = responses.map((r, idx) => {
         // Gemini may nest under r.response or directly under r
         const parts =
           r?.response?.candidates?.[0]?.content?.parts ||
@@ -773,7 +777,16 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
           [];
         for (const part of parts) {
           if (part?.inlineData?.data) {
-            return `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
+            try {
+              const imgBuffer = Buffer.from(part.inlineData.data, 'base64');
+              const ext = (part.inlineData.mimeType || 'image/jpeg').split('/')[1] || 'jpg';
+              const filename = `${idx}.${ext}`;
+              fs.writeFileSync(path.join(imgDir, filename), imgBuffer);
+              return `/batch-static/${uid}/batch_images/${jobId}/${filename}`;
+            } catch (saveErr) {
+              console.error(`[batch-dl] Failed to save image ${idx} for ${jobId}:`, saveErr.message);
+              return null;
+            }
           }
         }
         return null;
