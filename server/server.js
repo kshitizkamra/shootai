@@ -1013,6 +1013,15 @@ async function fetchAndCacheBatchResults(googleKey, name, uid, jobId) {
   }
 }
 
+// ── Static file serving ───────────────────────────────────────────────────
+
+app.use(express.static(BUILD_DIR));
+
+// Catch-all: serve React app for any non-API route
+app.get('*', (req, res) => {
+  res.sendFile(path.join(BUILD_DIR, 'index.html'));
+});
+
 // ── Start ──────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
