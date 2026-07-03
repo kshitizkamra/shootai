@@ -857,6 +857,21 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
     return;
   }
 
+  // Skip if results already saved — handles server restart after a completed download
+  const existingResults = readUserStore(uid, `batch_results_${jobId}`);
+  if (existingResults) {
+    console.log(`[batch-dl] Job ${jobId} already downloaded — skipping`);
+    ongoingBatchFetches.delete(`${uid}:${jobId}:dl`);
+    return;
+  }
+
+  // Claim credits optimistically BEFORE download — prevents double deduction if server restarts mid-download
+  const preMeta = readUserStore(uid, `batch_meta_${jobId}`);
+  const shouldDeductCredits = !!(preMeta && !preMeta.creditsClaimed && preMeta.userId);
+  if (shouldDeductCredits) {
+    writeUserStore(uid, `batch_meta_${jobId}`, { ...preMeta, creditsClaimed: true });
+  }
+
   console.log(`[batch-dl] Downloading images for ${jobId} (attempt ${failCount + 1})`);
   try {
     // Use axios directly — avoids SDK's potential OOM on large inline responses
@@ -890,8 +905,7 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
       if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
 
       // Parse target resolution from batch meta (e.g. '1080x1440' → 1080, 1440)
-      const meta0 = readUserStore(uid, `batch_meta_${jobId}`);
-      const resParts = (meta0?.resolution || '1080x1440').split('x').map(Number);
+      const resParts = (preMeta?.resolution || '1080x1440').split('x').map(Number);
       const [targetW, targetH] = resParts.length === 2 ? resParts : [1080, 1440];
 
       const results = await Promise.all(responses.map(async (r, idx) => {
@@ -924,25 +938,23 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
       writeUserStore(uid, `batch_results_${jobId}`, results);
       writeUserStore(uid, `batch_state_${jobId}`, { state: 'JOB_STATE_SUCCEEDED', ts: Date.now() });
 
-      // Deduct credits once
-      const meta = readUserStore(uid, `batch_meta_${jobId}`);
-      if (meta && !meta.creditsClaimed && meta.userId) {
+      // Deduct credits — only if this run claimed them via shouldDeductCredits above
+      if (shouldDeductCredits) {
         const successCount = results.filter(Boolean).length;
         if (successCount > 0) {
           const users = readUsers();
-          const idx = users.findIndex(u => u.id === meta.userId);
-          if (idx !== -1) {
-            const toDeduct = Math.min(successCount, users[idx].credits || 0);
-            users[idx].credits = (users[idx].credits || 0) - toDeduct;
-            users[idx].totalCreditsUsed = (users[idx].totalCreditsUsed || 0) + toDeduct;
-            users[idx].totalImagesGenerated = (users[idx].totalImagesGenerated || 0) + successCount;
+          const uidx = users.findIndex(u => u.id === preMeta.userId);
+          if (uidx !== -1) {
+            const toDeduct = Math.min(successCount, users[uidx].credits || 0);
+            users[uidx].credits = (users[uidx].credits || 0) - toDeduct;
+            users[uidx].totalCreditsUsed = (users[uidx].totalCreditsUsed || 0) + toDeduct;
+            users[uidx].totalImagesGenerated = (users[uidx].totalImagesGenerated || 0) + successCount;
             writeUsers(users);
             if (toDeduct > 0)
-              addTransaction(meta.userId, 'credit_used', toDeduct,
+              addTransaction(preMeta.userId, 'credit_used', toDeduct,
                 `${toDeduct} credit${toDeduct > 1 ? 's' : ''} used (batch: ${successCount} image${successCount > 1 ? 's' : ''})`);
           }
         }
-        writeUserStore(uid, `batch_meta_${jobId}`, { ...meta, creditsClaimed: true });
       }
       console.log(`[batch-dl] Job ${jobId} — cached ${results.filter(Boolean).length} results`);
       ongoingBatchFetches.delete(failKey); // clear fail count on success
