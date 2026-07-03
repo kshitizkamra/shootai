@@ -595,7 +595,8 @@ function releaseSubmissionLock(uid) {
 // blocked waiting for Gemini to accept (potentially minutes of) image data.
 async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, itemCount, userId, resolution) {
   try {
-    const ai = new GoogleGenAI({ apiKey: googleKey });
+    // attempts:1 = no auto-retry — batches.create is NOT idempotent (retry creates a duplicate batch)
+    const ai = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 1 } } });
     const job = await ai.batches.create({
       model: 'models/gemini-3.1-flash-image',
       src: inlinedRequests,
@@ -651,21 +652,35 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
     }
   }
 
-  // Check lock BEFORE any heavy processing — prevents duplicate submissions
-  // (Root cause of "2 Gemini entries": building inlinedRequests was slow + synchronous,
-  //  blocking the event loop → nginx timed out → client saw error → user retried.
-  //  First job was already created in background. Now we respond before the heavy work.)
-  if (hasSubmissionLock(uid)) {
-    return res.status(429).json({ error: 'A batch is already being submitted. Please wait a moment.' });
-  }
-  acquireSubmissionLock(uid);
-
   try {
+    // Build inlinedRequests and immediately clear source from memory
     const rawRequests = [...(requests || [])];
-    const batchResolution = rawRequests[0]?.resolution || '1080x1440';
-    const itemCount = rawRequests.length;
-    const userId = isAdmin ? null : req.userId;
     req.body = null; // allow GC to collect parsed request body
+    const inlinedRequests = rawRequests.map(r => {
+      const parts = [{ text: r.prompt }];
+      (r.images || []).forEach(img => {
+        parts.push({
+          inlineData: {
+            mimeType: img.startsWith('data:image/png') ? 'image/png' : 'image/jpeg',
+            data: img.replace(/^data:image\/\w+;base64,/, ''),
+          },
+        });
+      });
+      r.images = null; // free image data from source as we go
+      return {
+        contents: [{ role: 'user', parts }],
+        config: {
+          responseModalities: ['TEXT', 'IMAGE'],
+          imageConfig: { aspectRatio: r.aspectRatio || '3:4', imageSize: '1K' },
+        },
+      };
+    });
+
+    // Prevent double-submission (double-click, nginx timeout retry, etc.)
+    if (hasSubmissionLock(uid)) {
+      return res.status(429).json({ error: 'A batch is already being submitted. Please wait a moment.' });
+    }
+    acquireSubmissionLock(uid);
 
     // Generate a temp name — client stores this immediately, no waiting
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
@@ -673,50 +688,20 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
 
     // Reserve credits using temp ID so the counter stays accurate
     writeUserStore(uid, `batch_meta_${tempId}`, {
-      name: tempName, itemCount, creditsClaimed: false, userId,
+      name: tempName,
+      itemCount: rawRequests.length,
+      creditsClaimed: false,
+      userId: isAdmin ? null : req.userId,
     });
 
-    // ── Respond immediately ──────────────────────────────────────────────────
-    // Building inlinedRequests is a synchronous CPU-bound loop (base64 string
-    // manipulation for every image in every batch item). On large batches this
-    // can block the event loop long enough for nginx to return a 504 to the
-    // client even though the server is still working fine. Moving it to
-    // setImmediate ensures the response goes out before the heavy work starts.
+    // Fire-and-forget — the real Gemini call happens in background (lock released in finally)
+    const batchResolution = rawRequests[0]?.resolution || '1080x1440';
+    createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, rawRequests.length, isAdmin ? null : req.userId, batchResolution);
+
+    // Respond immediately so the client isn't blocked
     res.json({ name: tempName, state: 'JOB_STATE_PENDING', createTime: new Date().toISOString() });
-
-    // ── Heavy work runs AFTER response is sent ───────────────────────────────
-    setImmediate(() => {
-      try {
-        const inlinedRequests = rawRequests.map(r => {
-          const parts = [{ text: r.prompt }];
-          (r.images || []).forEach(img => {
-            parts.push({
-              inlineData: {
-                mimeType: img.startsWith('data:image/png') ? 'image/png' : 'image/jpeg',
-                data: img.replace(/^data:image\/\w+;base64,/, ''),
-              },
-            });
-          });
-          r.images = null; // free image data from source as we go
-          return {
-            contents: [{ role: 'user', parts }],
-            config: {
-              responseModalities: ['TEXT', 'IMAGE'],
-              imageConfig: { aspectRatio: r.aspectRatio || '3:4', imageSize: '1K' },
-            },
-          };
-        });
-        // Fire-and-forget — the real Gemini call happens in background (lock released in finally)
-        createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, itemCount, userId, batchResolution);
-      } catch (e) {
-        console.error('[batch-create] inlinedRequests build failed:', e.message);
-        writeUserStore(uid, `batch_tempmap_${tempId}`, { failed: true, error: e.message });
-        releaseSubmissionLock(uid);
-      }
-    });
   } catch (e) {
-    releaseSubmissionLock(uid);
-    if (!res.headersSent) res.status(500).json({ error: e.message || String(e) });
+    res.status(500).json({ error: e.message || String(e) });
   }
 });
 

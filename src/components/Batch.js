@@ -28,7 +28,6 @@ export default function Batch() {
   const [lightbox, setLightbox] = useState(null); // { src, label }
   const hasActiveRef = useRef(false);
   const savedToHistoryRef = useRef(new Set());
-  const isSubmittingRef = useRef(false); // ref guard — survives re-renders, prevents double-call
 
   const loadQueue = useCallback(async () => {
     const q = await getBatchQueue();
@@ -48,7 +47,8 @@ export default function Batch() {
     const lean = all.map(j => {
       if (!j.results) return j;
       const allSaved = j.results.every((_, i) => j.savedPaths && j.savedPaths[i]);
-      return allSaved ? { ...j, results: j.results.map(() => null) } : j;
+      // Only null base64 data (memory); keep URL results so Save buttons stay functional
+      return allSaved ? { ...j, results: j.results.map(r => (r && r.startsWith('data:')) ? null : r) } : j;
     });
     setJobs(lean);
   }, []);
@@ -123,10 +123,8 @@ export default function Batch() {
   }
 
   async function handleSubmitBatch() {
-    if (isSubmittingRef.current) return; // ref guard: state update may not re-render in time
     const selectedQueue = queue.filter(item => selectedItems.has(item.id));
     if (selectedQueue.length === 0) return setError('No items selected.');
-    isSubmittingRef.current = true;
     setSubmitting(true);
     setError('');
     try {
@@ -162,7 +160,6 @@ export default function Batch() {
     } catch (e) {
       setError('Submit failed: ' + e.message);
     }
-    isSubmittingRef.current = false;
     setSubmitting(false);
   }
 
@@ -236,7 +233,7 @@ export default function Batch() {
     if (!job?.results) return;
     const updatedPaths = [...(job.savedPaths || [])];
     for (let i = 0; i < job.results.length; i++) {
-      if (job.results[i] && !updatedPaths[i]) {
+      if (job.results[i]) { // always download — user can save all multiple times
         const key = `${jobIdx}_${i}`;
         setSaving(prev => ({ ...prev, [key]: true }));
         try {
