@@ -163,24 +163,6 @@ export default function Batch({ isAdmin = false }) {
     setSubmitting(false);
   }
 
-  async function handlePollJob(name) {
-    setError('');
-    try {
-      const job = jobs.find(j => j.name === name);
-      const updated = await pollBatchJob(name);
-      // If temp name resolved to real Gemini name, migrate — same as pollAllJobs does
-      if (updated.name && updated.name !== name && !updated.name.startsWith('submitting/')) {
-        await deleteBatchJob(name);
-        await saveBatchJob({ ...job, ...updated, name: updated.name });
-      } else {
-        await saveBatchJob({ ...job, ...updated });
-      }
-      loadJobs();
-    } catch (e) {
-      setError('Poll failed: ' + e.message);
-    }
-  }
-
   async function handleCancelJob(name) {
     try {
       await cancelBatchJob(name);
@@ -272,7 +254,6 @@ export default function Batch({ isAdmin = false }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, paddingTop: 6, flexShrink: 0 }}>
               <span className="spinner spinner-dark" style={{ width: 14, height: 14 }} />
               <span style={{ color: '#e07020' }}>{activeCount} job{activeCount > 1 ? 's' : ''} running</span>
-              <button className="btn btn-ghost btn-sm" onClick={pollAllJobs}>↻ Check Now</button>
             </div>
           )}
           <div style={{ width: 140, flexShrink: 0 }} />
@@ -422,7 +403,7 @@ export default function Batch({ isAdmin = false }) {
                               {isActive && <span className="spinner" style={{ width: 10, height: 10, marginRight: 4, borderColor: stateInfo.color, borderTopColor: 'transparent' }} />}
                               {stateInfo.label}
                             </span>
-                            {isActive && !isDownloading && <button className="btn btn-ghost btn-sm" onClick={() => handlePollJob(job.name)}>↻ Check</button>}
+
                             {isActive && !isDownloading && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => handleCancelJob(job.name)}>Cancel</button>}
                             {isAdmin && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--gray-500)' }} onClick={() => handleDeleteJob(job.name)} title="Remove from list">✕</button>}
                           </div>

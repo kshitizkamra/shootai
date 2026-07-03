@@ -99,7 +99,7 @@ export default function AdminPanel() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 2, padding: '0 24px', borderBottom: '1px solid var(--gray-200)' }}>
-        {[['dashboard', '📊 Dashboard'], ['users', '👥 Users'], ['apikeys', '🔑 API Keys'], ['backup', '💾 Backup'], ['audit', '🗂 Audit Log']].map(([id, label]) => (
+        {[['dashboard', '📊 Dashboard'], ['users', '👥 Users'], ['apikeys', '🔑 API Keys'], ['backup', '💾 Backup'], ['prompts', '📝 Prompts'], ['audit', '🗂 Audit Log']].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{
             padding: '10px 20px', border: 'none', background: 'none', cursor: 'pointer',
             fontWeight: tab === id ? 600 : 400, fontSize: 13,
@@ -125,6 +125,8 @@ export default function AdminPanel() {
           />
         ) : tab === 'apikeys' ? (
           <ApiKeysTab apiKeys={apiKeys} setApiKeys={setApiKeys} onSave={handleSaveKeys} saving={saving} />
+        ) : tab === 'prompts' ? (
+          <PromptsTab />
         ) : tab === 'audit' ? (
           <AuditTab users={users} />
         ) : (
@@ -457,9 +459,9 @@ function BackupTab() {
           <strong>⚠️ Deployment checklist</strong>
           <ol style={{ margin: '8px 0 0 16px', lineHeight: 2 }}>
             <li>Go to <strong>Backup</strong> tab → Download Backup</li>
-            <li>Push your code changes to GitHub</li>
-            <li>Wait for Render to finish deploying</li>
-            <li>Log in and go to <strong>Backup</strong> tab → Restore</li>
+
+            <li>Wait for deploy to finish</li>
+            <li>Log in → <strong>Backup</strong> tab → Restore</li>
           </ol>
         </div>
       </div>
@@ -467,118 +469,293 @@ function BackupTab() {
   );
 }
 
-const EVENT_LABELS = {
-  batch_submitted:    { label: 'Batch Submitted', color: 'var(--navy)', icon: '📦' },
-  realtime_generated: { label: 'Real-time Shot',  color: 'var(--green)', icon: '⚡' },
-};
+// ── Audit Tab ──────────────────────────────────────────────────────────────
 
 function AuditTab({ users }) {
-  const [selectedUser, setSelectedUser] = useState('');
-  const [entries, setEntries]           = useState([]);
-  const [summary, setSummary]           = useState([]);
-  const [loading, setLoading]           = useState(false);
+  const [summary, setSummary] = React.useState(null);
+  const [selectedUser, setSelectedUser] = React.useState(null);
+  const [entries, setEntries] = React.useState([]);
+  const [loadingEntries, setLoadingEntries] = React.useState(false);
 
-  useEffect(() => {
-    // Load summary on mount
-    api('GET', '/api/admin/audit').then(d => setSummary(d.summary || [])).catch(() => {});
-  }, []);
+  React.useEffect(() => { loadSummary(); }, []);
 
-  async function loadUser(uid) {
-    setSelectedUser(uid);
-    if (!uid) return setEntries([]);
-    setLoading(true);
+  async function loadSummary() {
     try {
-      const data = await api('GET', `/api/admin/audit?userId=${uid}`);
-      setEntries(data.entries || []);
-    } catch { setEntries([]); }
-    setLoading(false);
+      const data = await api('GET', '/api/admin/audit');
+      setSummary(data.summary || []);
+    } catch { setSummary([]); }
   }
 
-  const totalCredits = entries.reduce((s, e) => s + (e.credits || 0), 0);
+  async function loadUserEntries(userId) {
+    setLoadingEntries(true);
+    try {
+      const data = await api('GET', `/api/admin/audit?userId=${userId}`);
+      setEntries(data.entries || []);
+    } catch { setEntries([]); }
+    setLoadingEntries(false);
+  }
+
+  function handleSelectUser(u) {
+    setSelectedUser(u);
+    loadUserEntries(u.userId);
+  }
+
+  if (!summary) return React.createElement('div', { style: { textAlign: 'center', padding: 40 } }, React.createElement('div', { className: 'spinner spinner-dark' }));
+
+  if (selectedUser) {
+    return (
+      <div>
+        <button className="btn btn-ghost btn-sm" onClick={() => setSelectedUser(null)} style={{ marginBottom: 16 }}>
+          ← Back to summary
+        </button>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{selectedUser.email}</h2>
+        <p style={{ fontSize: 12, color: 'var(--gray-500)', marginBottom: 16 }}>
+          {selectedUser.totalEntries} events · {selectedUser.totalCreditsUsed} credits used
+        </p>
+        {loadingEntries ? (
+          <div style={{ textAlign: 'center', padding: 20 }}><div className="spinner spinner-dark" /></div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: 'var(--gray-100)' }}>
+                {['Time', 'Event', 'Detail', 'Credits'].map(h => (
+                  <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid var(--gray-100)' }}>
+                  <td style={{ padding: '8px 12px', color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>
+                    {new Date(e.ts).toLocaleString()}
+                  </td>
+                  <td style={{ padding: '8px 12px', fontWeight: 500 }}>{e.event}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--gray-600)', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {e.detail || '\u2014'}
+                  </td>
+                  <td style={{ padding: '8px 12px', textAlign: 'right' }}>{e.credits ?? '\u2014'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-        <select value={selectedUser} onChange={e => loadUser(e.target.value)}
-          style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--gray-300)', fontSize: 13, minWidth: 220 }}>
-          <option value="">— Select user —</option>
-          {users.filter(u => u.role !== 'admin').map(u => (
-            <option key={u.id} value={u.id}>{u.email}</option>
-          ))}
-        </select>
-        {selectedUser && !loading && (
-          <span style={{ fontSize: 13, color: 'var(--gray-600)' }}>
-            {entries.length} events · <strong>{totalCredits} credits used</strong>
-          </span>
-        )}
-      </div>
-
-      {!selectedUser ? (
-        /* Summary table of all users */
+      <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Activity by User</h2>
+      {summary.length === 0 ? (
+        <p style={{ color: 'var(--gray-500)', fontSize: 13 }}>No audit data yet.</p>
+      ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
             <tr style={{ background: 'var(--gray-100)' }}>
-              {['User', 'Total Events', 'Credits Used', 'Last Activity'].map(h => (
+              {['User', 'Events', 'Credits Used', 'Last Activity', ''].map(h => (
                 <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {summary.map(s => (
-              <tr key={s.userId} style={{ borderBottom: '1px solid var(--gray-100)', cursor: 'pointer' }}
-                onClick={() => loadUser(s.userId)}>
-                <td style={{ padding: '8px 12px', color: 'var(--navy)', fontWeight: 500 }}>{s.email}</td>
-                <td style={{ padding: '8px 12px' }}>{s.totalEntries}</td>
-                <td style={{ padding: '8px 12px', fontWeight: 600 }}>{s.totalCreditsUsed}</td>
-                <td style={{ padding: '8px 12px', color: 'var(--gray-500)', fontSize: 11 }}>
-                  {s.lastActivity ? new Date(s.lastActivity).toLocaleString() : '—'}
+            {summary.map(u => (
+              <tr key={u.userId} style={{ borderBottom: '1px solid var(--gray-100)' }}>
+                <td style={{ padding: '8px 12px', fontWeight: 500 }}>{u.email}</td>
+                <td style={{ padding: '8px 12px' }}>{u.totalEntries}</td>
+                <td style={{ padding: '8px 12px' }}>{u.totalCreditsUsed}</td>
+                <td style={{ padding: '8px 12px', color: 'var(--gray-500)', fontSize: 12 }}>
+                  {u.lastActivity ? new Date(u.lastActivity).toLocaleString() : '\u2014'}
+                </td>
+                <td style={{ padding: '8px 12px' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => handleSelectUser(u)}>View \u2192</button>
                 </td>
               </tr>
             ))}
-            {summary.length === 0 && (
-              <tr><td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'var(--gray-500)' }}>No audit data yet</td></tr>
-            )}
-          </tbody>
-        </table>
-      ) : loading ? (
-        <div style={{ textAlign: 'center', padding: 40 }}><div className="spinner spinner-dark" /></div>
-      ) : (
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-          <thead>
-            <tr style={{ background: 'var(--gray-100)' }}>
-              {['Timestamp', 'Event', 'Details', 'Credits'].map(h => (
-                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((e, i) => {
-              const ev = EVENT_LABELS[e.event] || { label: e.event, color: 'var(--gray-500)', icon: '•' };
-              return (
-                <tr key={i} style={{ borderBottom: '1px solid var(--gray-100)' }}>
-                  <td style={{ padding: '7px 12px', color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>
-                    {new Date(e.ts).toLocaleString()}
-                  </td>
-                  <td style={{ padding: '7px 12px' }}>
-                    <span style={{ color: ev.color, fontWeight: 600 }}>{ev.icon} {ev.label}</span>
-                  </td>
-                  <td style={{ padding: '7px 12px', color: 'var(--gray-600)', fontFamily: 'monospace', fontSize: 11 }}>
-                    {e.event === 'batch_submitted'
-                      ? `${e.itemCount} items · ${e.jobId || ''}`
-                      : e.engine || ''}
-                  </td>
-                  <td style={{ padding: '7px 12px', fontWeight: 600, color: e.credits ? 'var(--red)' : 'var(--gray-400)' }}>
-                    {e.credits ? `-${e.credits}` : '0'}
-                  </td>
-                </tr>
-              );
-            })}
-            {entries.length === 0 && (
-              <tr><td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'var(--gray-500)' }}>No activity logged for this user</td></tr>
-            )}
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+// ── Prompts Tab ────────────────────────────────────────────────────────────
+
+const PROMPT_SECTIONS = [
+  { key: 'global.garment_shape_lock',            label: 'Garment Shape Lock',         section: 'Global' },
+  { key: 'global.print_lock_angle',               label: 'Print Lock (Angle)',          section: 'Global' },
+  { key: 'global.footwear_block',                 label: 'Footwear Block',              section: 'Global' },
+  { key: 'garment_orientation.Front',             label: 'Orientation \u2014 Front',   section: 'Garment Orientation' },
+  { key: 'garment_orientation.Styled',            label: 'Orientation \u2014 Styled',  section: 'Garment Orientation' },
+  { key: 'garment_orientation.Side',              label: 'Orientation \u2014 Side',    section: 'Garment Orientation' },
+  { key: 'garment_orientation.Back',              label: 'Orientation \u2014 Back',    section: 'Garment Orientation' },
+  { key: 'model_identity.Front',                  label: 'Identity \u2014 Front',      section: 'Model Identity' },
+  { key: 'model_identity.Styled',                 label: 'Identity \u2014 Styled',     section: 'Model Identity' },
+  { key: 'model_identity.Side',                   label: 'Identity \u2014 Side',       section: 'Model Identity' },
+  { key: 'model_identity.Back',                   label: 'Identity \u2014 Back',       section: 'Model Identity' },
+  { key: 'model_identity.Detail Close-Up',        label: 'Identity \u2014 Detail',     section: 'Model Identity' },
+  { key: 'e_shared.lighting',                     label: 'Lighting',                    section: 'E \u2014 Shared' },
+  { key: 'e_shared.shadow',                       label: 'Shadow',                      section: 'E \u2014 Shared' },
+  { key: 'e_shared.bgLock',                       label: 'Background Lock',             section: 'E \u2014 Shared' },
+  { key: 'e_shared.framingLock',                  label: 'Framing Lock',                section: 'E \u2014 Shared' },
+  { key: 'e_styled.garment_absolute_lock',        label: 'Garment Absolute Lock',       section: 'E \u2014 Styled' },
+  { key: 'e_styled.garment_accessories',          label: 'Garment Accessories',         section: 'E \u2014 Styled' },
+  { key: 'e_styled.framing',                      label: 'Framing',                     section: 'E \u2014 Styled' },
+  { key: 'e_styled.garment_fidelity',             label: 'Garment Fidelity',            section: 'E \u2014 Styled' },
+  { key: 'e_styled.print_lock',                   label: 'Print Lock',                  section: 'E \u2014 Styled' },
+  { key: 'e_styled.pose_action_with_pose',        label: 'Pose Action (with pose)',     section: 'E \u2014 Styled' },
+  { key: 'e_styled.pose_action_without_pose',     label: 'Pose Action (no pose)',       section: 'E \u2014 Styled' },
+  { key: 'e_detail_closeup.action',               label: 'Action',                      section: 'E \u2014 Detail Close-Up' },
+  { key: 'e_detail_closeup.body',                 label: 'Body',                        section: 'E \u2014 Detail Close-Up' },
+  { key: 'e_category_actions.full_outfit.Front',  label: 'Full Outfit \u2014 Front',   section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.full_outfit.Side',   label: 'Full Outfit \u2014 Side',    section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.full_outfit.Back',   label: 'Full Outfit \u2014 Back',    section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.topwear.Front',      label: 'Topwear \u2014 Front',       section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.topwear.Side',       label: 'Topwear \u2014 Side',        section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.topwear.Back',       label: 'Topwear \u2014 Back',        section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.bottomwear.Front',   label: 'Bottomwear \u2014 Front',    section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.bottomwear.Side',    label: 'Bottomwear \u2014 Side',     section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.bottomwear.Back',    label: 'Bottomwear \u2014 Back',     section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.innerwear.Front',    label: 'Innerwear \u2014 Front',     section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.innerwear.Side',     label: 'Innerwear \u2014 Side',      section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.innerwear.Back',     label: 'Innerwear \u2014 Back',      section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.outerwear.Front',    label: 'Outerwear \u2014 Front',     section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.outerwear.Side',     label: 'Outerwear \u2014 Side',      section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.outerwear.Back',     label: 'Outerwear \u2014 Back',      section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.footwear.Front',     label: 'Footwear \u2014 Front',      section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.footwear.Side',      label: 'Footwear \u2014 Side',       section: 'E \u2014 Category Actions' },
+  { key: 'e_category_actions.footwear.Back',      label: 'Footwear \u2014 Back',       section: 'E \u2014 Category Actions' },
+  { key: 'c_shot_prompts.Front',                  label: 'Front',                       section: 'C \u2014 Shot Prompts (RT)' },
+  { key: 'c_shot_prompts.Styled',                 label: 'Styled',                      section: 'C \u2014 Shot Prompts (RT)' },
+  { key: 'c_shot_prompts.Side',                   label: 'Side',                        section: 'C \u2014 Shot Prompts (RT)' },
+  { key: 'c_shot_prompts.Back',                   label: 'Back',                        section: 'C \u2014 Shot Prompts (RT)' },
+  { key: 'c_shot_prompts.Detail Close-Up',        label: 'Detail Close-Up',             section: 'C \u2014 Shot Prompts (RT)' },
+  { key: 'c_shot_prompts_batch.Front',            label: 'Front',                       section: 'C \u2014 Shot Prompts (Batch)' },
+  { key: 'c_shot_prompts_batch.Styled',           label: 'Styled',                      section: 'C \u2014 Shot Prompts (Batch)' },
+  { key: 'c_shot_prompts_batch.Side',             label: 'Side',                        section: 'C \u2014 Shot Prompts (Batch)' },
+  { key: 'c_shot_prompts_batch.Back',             label: 'Back',                        section: 'C \u2014 Shot Prompts (Batch)' },
+  { key: 'c_shot_prompts_batch.Detail Close-Up',  label: 'Detail Close-Up',             section: 'C \u2014 Shot Prompts (Batch)' },
+  { key: 'b_core_prompt',                         label: 'Core Garment Prompt',         section: 'Workflow B' },
+  { key: 'd_core_prompt',                         label: 'Core Try-On Prompt',          section: 'Workflow D' },
+];
+
+function getNestedValue(obj, key) {
+  return key.split('.').reduce((o, k) => (o && o[k] !== undefined ? o[k] : ''), obj);
+}
+
+function setNestedValue(obj, key, value) {
+  const parts = key.split('.');
+  const result = JSON.parse(JSON.stringify(obj));
+  let cur = result;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (!cur[parts[i]]) cur[parts[i]] = {};
+    cur = cur[parts[i]];
+  }
+  cur[parts[parts.length - 1]] = value;
+  return result;
+}
+
+function PromptsTab() {
+  const [templates, setTemplates] = React.useState(null);
+  const [editKey, setEditKey]     = React.useState(null);
+  const [editValue, setEditValue] = React.useState('');
+  const [filterSection, setFilterSection] = React.useState('all');
+  const [saving, setSaving]       = React.useState(false);
+  const [saved, setSaved]         = React.useState(false);
+
+  React.useEffect(() => { loadTemplates(); }, []);
+
+  async function loadTemplates() {
+    try {
+      const data = await api('GET', '/api/prompt-templates');
+      setTemplates(data);
+    } catch { setTemplates({}); }
+  }
+
+  function startEdit(key) {
+    setEditKey(key);
+    setEditValue(getNestedValue(templates, key));
+    setSaved(false);
+  }
+
+  async function saveEdit() {
+    setSaving(true);
+    const updated = setNestedValue(templates, editKey, editValue);
+    try {
+      await api('PUT', '/api/admin/prompt-templates', updated);
+      setTemplates(updated);
+      setSaved(true);
+      setEditKey(null);
+      if (window.__invalidatePromptTemplates) window.__invalidatePromptTemplates();
+    } catch {}
+    setSaving(false);
+  }
+
+  const sections = [...new Set(PROMPT_SECTIONS.map(p => p.section))];
+  const filtered = filterSection === 'all' ? PROMPT_SECTIONS : PROMPT_SECTIONS.filter(p => p.section === filterSection);
+
+  if (!templates) return React.createElement('div', { style: { textAlign: 'center', padding: 40 } }, React.createElement('div', { className: 'spinner spinner-dark' }));
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+        <select value={filterSection} onChange={e => setFilterSection(e.target.value)}
+          style={{ padding: '7px 12px', borderRadius: 6, border: '1px solid var(--gray-300)', fontSize: 13, minWidth: 220 }}>
+          <option value="all">All Sections</option>
+          {sections.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <span style={{ fontSize: 12, color: 'var(--gray-500)' }}>{filtered.length} entries</span>
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+        <thead>
+          <tr style={{ background: 'var(--gray-100)' }}>
+            {['Section', 'Label', 'Current Value', ''].map(h => (
+              <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {filtered.map(({ key, label, section }) => {
+            const val = getNestedValue(templates, key);
+            const isEditing = editKey === key;
+            return (
+              <React.Fragment key={key}>
+                <tr style={{ borderBottom: '1px solid var(--gray-100)', background: isEditing ? 'var(--cream)' : 'white' }}>
+                  <td style={{ padding: '8px 12px', color: 'var(--gray-500)', fontSize: 11, whiteSpace: 'nowrap' }}>{section}</td>
+                  <td style={{ padding: '8px 12px', fontWeight: 500, whiteSpace: 'nowrap' }}>{label}</td>
+                  <td style={{ padding: '8px 12px', color: 'var(--gray-600)', maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {val || <span style={{ color: 'var(--gray-400)', fontStyle: 'italic' }}>empty</span>}
+                  </td>
+                  <td style={{ padding: '8px 12px', whiteSpace: 'nowrap' }}>
+                    <button className="btn btn-ghost btn-sm" onClick={() => isEditing ? setEditKey(null) : startEdit(key)}>
+                      {isEditing ? 'Cancel' : 'Edit'}
+                    </button>
+                  </td>
+                </tr>
+                {isEditing && (
+                  <tr style={{ background: 'var(--cream)', borderBottom: '1px solid var(--gray-200)' }}>
+                    <td colSpan={4} style={{ padding: '0 12px 12px' }}>
+                      <textarea
+                        value={editValue}
+                        onChange={e => setEditValue(e.target.value)}
+                        rows={6}
+                        style={{ width: '100%', fontFamily: 'monospace', fontSize: 12, padding: 8, borderRadius: 6, border: '1px solid var(--gray-300)', resize: 'vertical', boxSizing: 'border-box', marginTop: 8 }}
+                      />
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        <button className="btn btn-primary btn-sm" onClick={saveEdit} disabled={saving}>
+                          {saving ? 'Saving...' : 'Save'}
+                        </button>
+                        <button className="btn btn-ghost btn-sm" onClick={() => setEditKey(null)}>Cancel</button>
+                        {saved && <span style={{ color: 'var(--green)', fontSize: 12, alignSelf: 'center' }}>Saved</span>}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

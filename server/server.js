@@ -428,6 +428,45 @@ app.post('/api/store/:key', requireAuth, requireActive, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Prompt Templates ──────────────────────────────────────────────────────
+
+const PROMPT_TEMPLATES_FILE = path.join(DATA_DIR, 'prompt_templates.json');
+const PROMPT_TEMPLATES_SEED = path.join(__dirname, 'prompt_templates.seed.json');
+
+// On first boot, seed from the committed seed file so the VM has defaults
+if (!fs.existsSync(PROMPT_TEMPLATES_FILE) && fs.existsSync(PROMPT_TEMPLATES_SEED)) {
+  fs.copyFileSync(PROMPT_TEMPLATES_SEED, PROMPT_TEMPLATES_FILE);
+  console.log('[server] prompt_templates.json seeded from seed file');
+}
+
+function readPromptTemplates() {
+  try {
+    if (fs.existsSync(PROMPT_TEMPLATES_FILE)) {
+      return JSON.parse(fs.readFileSync(PROMPT_TEMPLATES_FILE, 'utf8'));
+    }
+  } catch {}
+  return null;
+}
+
+function writePromptTemplates(data) {
+  fs.writeFileSync(PROMPT_TEMPLATES_FILE, JSON.stringify(data, null, 2));
+}
+
+app.get('/api/prompt-templates', requireAuth, (req, res) => {
+  const t = readPromptTemplates();
+  if (!t) return res.status(404).json({ error: 'Templates not found' });
+  res.json(t);
+});
+
+app.put('/api/admin/prompt-templates', requireAdmin, (req, res) => {
+  try {
+    writePromptTemplates(req.body);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── AI routes ──────────────────────────────────────────────────────────────
 
 app.post('/api/ai/test-connection', requireAdmin, async (req, res) => {
@@ -966,107 +1005,4 @@ async function fetchAndCacheBatchResults(googleKey, name, uid, jobId) {
       const dlKey = `${uid}:${jobId}:dl`;
       if (!ongoingBatchFetches.has(dlKey)) {
         ongoingBatchFetches.set(dlKey, true);
-        downloadBatchImages(googleKey, name, uid, jobId); // fire and forget
-      }
-    }
-  } catch (e) {
-    console.error(`[batch-bg error] job=${jobId}`, e.message);
-  } finally {
-    ongoingBatchFetches.delete(`${uid}:${jobId}`);
-  }
-}
-
-app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
-  let { name } = req.body;
-  const { googleKey } = getGlobalApiKeys();
-  if (!googleKey) return res.status(400).json({ error: 'Service not configured. Contact admin.' });
-
-  const isAdmin = req.userRole === 'admin';
-  const uid = isAdmin ? 'admin' : req.userId;
-
-  // Handle temp names — batch still being submitted to Gemini in background
-  if (name && name.startsWith('submitting/')) {
-    const tempId = name.split('/')[1];
-    const tempMap = readUserStore(uid, `batch_tempmap_${tempId}`);
-    if (!tempMap) return res.json({ name, state: 'JOB_STATE_PENDING' }); // still uploading to Gemini
-    if (tempMap.failed) return res.json({ name, state: 'JOB_STATE_FAILED', error: tempMap.error });
-    // Real name resolved — tell the client so it can migrate the record, then continue with real check
-    name = tempMap.realName;
-  }
-
-  const jobId = name.split('/').pop();
-
-  // 1. Serve from results cache — job fully done
-  if (!isAdmin) {
-    const cached = readUserStore(uid, `batch_results_${jobId}`);
-    if (cached) return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: cached });
-
-    // Credits claimed but cache missing = results lost (edge case)
-    const meta = readUserStore(uid, `batch_meta_${jobId}`);
-    if (meta && meta.creditsClaimed) return res.json({ name, state: 'JOB_STATE_SUCCEEDED', results: [] });
-  }
-
-  const lastState = !isAdmin ? readUserStore(uid, `batch_state_${jobId}`) : null;
-  const cachedState = lastState?.state;
-
-  // 2. Gemini says SUCCEEDED but images still downloading → keep download going, report downloading
-  if (cachedState === 'JOB_STATE_SUCCEEDED') {
-    const dlKey = `${uid}:${jobId}:dl`;
-    if (!ongoingBatchFetches.has(dlKey)) {
-      ongoingBatchFetches.set(dlKey, true);
-      downloadBatchImages(googleKey, name, uid, jobId); // resume download
-    }
-    return res.json({ name, state: 'JOB_STATE_DOWNLOADING' });
-  }
-
-  // 3. Job still running/pending — fast status check (no image download)
-  const statusKey = `${uid}:${jobId}`;
-  if (!ongoingBatchFetches.has(statusKey)) {
-    ongoingBatchFetches.set(statusKey, true);
-    fetchAndCacheBatchResults(googleKey, name, uid, jobId); // fire and forget
-  }
-
-  return res.json({ name, state: cachedState || 'JOB_STATE_RUNNING' });
-});
-
-app.post('/api/ai/gemini-batch-cancel', requireAuth, async (req, res) => {
-  const { name } = req.body;
-  const { googleKey } = getGlobalApiKeys();
-  if (!googleKey) return res.status(400).json({ error: 'Service not configured. Contact admin.' });
-
-  try {
-    const ai = new GoogleGenAI({ apiKey: googleKey });
-    await ai.batches.cancel({ name });
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
-  }
-});
-
-// ── Static files + React catch-all (AFTER all API routes) ─────────────────
-
-if (fs.existsSync(BUILD_DIR)) {
-  app.use(express.static(BUILD_DIR));
-  app.get('*', (req, res) => res.sendFile(path.join(BUILD_DIR, 'index.html')));
-}
-
-// ── JSON 404 / error fallback ──────────────────────────────────────────────
-
-app.use((req, res) => {
-  res.status(404).json({ error: `Cannot ${req.method} ${req.path}` });
-});
-
-app.use((err, req, res, next) => {
-  console.error('Server error:', err.message);
-  res.status(500).json({ error: err.message });
-});
-
-// ── Start ──────────────────────────────────────────────────────────────────
-
-app.listen(PORT, () => {
-  console.log(`\nShootAI server running on port ${PORT}`);
-  console.log(`Admin login: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`);
-  console.log(`Data dir: ${DATA_DIR}\n`);
-});
-
-module.exports = app;
+        downloadBatchImages(googleKey, name, uid, jobId); 
