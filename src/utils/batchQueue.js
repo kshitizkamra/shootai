@@ -79,10 +79,18 @@ export async function getBatchJobs() {
 export async function saveBatchJob(job) {
   const jobs = await getBatchJobs();
   const idx = jobs.findIndex(j => j.name === job.name);
+  // Strip base64 results before saving — only URLs/nulls go to store
+  // Prevents the store from growing to 20MB+ and causing slow load times
+  const cleanJob = {
+    ...job,
+    results: job.results
+      ? job.results.map(r => (r && r.startsWith('data:')) ? null : r)
+      : job.results,
+  };
   if (idx >= 0) {
-    jobs[idx] = { ...jobs[idx], ...job };
+    jobs[idx] = { ...jobs[idx], ...cleanJob };
   } else {
-    jobs.unshift(job);
+    jobs.unshift(cleanJob);
   }
   // Keep last 20 jobs, drop old ones
   await getAPI().storeSet('batchJobs', jobs.slice(0, 20));
