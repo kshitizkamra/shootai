@@ -560,8 +560,34 @@ app.post('/api/ai/openai-edit', requireAuth, requireActive, async (req, res) => 
 // ── Gemini batch (1 credit per successful image) ───────────────────────────
 // Uses @google/genai SDK — matches desktop electron.js exactly
 
-// Per-user lock: prevents duplicate Gemini batch jobs from double-clicks or retries
-const activeSubmissions = new Set();
+// Per-user lock: prevents duplicate Gemini batch jobs from double-clicks, retries, or deploys
+// Disk-based so it survives PM2 restarts — in-memory Set would be cleared on every deploy
+const SUBMISSION_LOCK_TTL = 10 * 60 * 1000; // 10 minutes
+
+function getSubmissionLockPath(uid) {
+  return path.join(getUserDataDir(uid), 'submission_lock.json');
+}
+
+function hasSubmissionLock(uid) {
+  try {
+    const lockPath = getSubmissionLockPath(uid);
+    if (!fs.existsSync(lockPath)) return false;
+    const { ts } = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
+    if (Date.now() - ts > SUBMISSION_LOCK_TTL) {
+      fs.unlinkSync(lockPath); // stale lock — clean up
+      return false;
+    }
+    return true;
+  } catch { return false; }
+}
+
+function acquireSubmissionLock(uid) {
+  fs.writeFileSync(getSubmissionLockPath(uid), JSON.stringify({ ts: Date.now() }));
+}
+
+function releaseSubmissionLock(uid) {
+  try { fs.unlinkSync(getSubmissionLockPath(uid)); } catch {}
+}
 
 // Background task: calls ai.batches.create() and maps temp → real job name.
 // The HTTP endpoint responds immediately with a temp name so the client isn't
@@ -598,7 +624,7 @@ async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, item
       writeUserStore(uid, `batch_meta_${tempId}`, { ...tempMeta, creditsClaimed: true });
     }
   } finally {
-    activeSubmissions.delete(uid); // release lock
+    releaseSubmissionLock(uid); // release lock
   }
 }
 
@@ -642,16 +668,16 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
         contents: [{ role: 'user', parts }],
         config: {
           responseModalities: ['TEXT', 'IMAGE'],
-          imageConfig: { aspectRatio: r.aspectRatio || '3:4', imageSize: '1K' },
+          imageConfig: { aspectRatio: r.aspectRatio || '3:4', imageSize: r.imageSize || '2K' },
         },
       };
     });
 
     // Prevent double-submission (double-click, nginx timeout retry, etc.)
-    if (activeSubmissions.has(uid)) {
+    if (hasSubmissionLock(uid)) {
       return res.status(429).json({ error: 'A batch is already being submitted. Please wait a moment.' });
     }
-    activeSubmissions.add(uid);
+    acquireSubmissionLock(uid);
 
     // Generate a temp name — client stores this immediately, no waiting
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
