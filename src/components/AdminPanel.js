@@ -99,7 +99,7 @@ export default function AdminPanel() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: 2, padding: '0 24px', borderBottom: '1px solid var(--gray-200)' }}>
-        {[['dashboard', '📊 Dashboard'], ['users', '👥 Users'], ['apikeys', '🔑 API Keys'], ['backup', '💾 Backup']].map(([id, label]) => (
+        {[['dashboard', '📊 Dashboard'], ['users', '👥 Users'], ['apikeys', '🔑 API Keys'], ['backup', '💾 Backup'], ['audit', '🗂 Audit Log']].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)} style={{
             padding: '10px 20px', border: 'none', background: 'none', cursor: 'pointer',
             fontWeight: tab === id ? 600 : 400, fontSize: 13,
@@ -125,6 +125,8 @@ export default function AdminPanel() {
           />
         ) : tab === 'apikeys' ? (
           <ApiKeysTab apiKeys={apiKeys} setApiKeys={setApiKeys} onSave={handleSaveKeys} saving={saving} />
+        ) : tab === 'audit' ? (
+          <AuditTab users={users} />
         ) : (
           <BackupTab />
         )}
@@ -461,6 +463,122 @@ function BackupTab() {
           </ol>
         </div>
       </div>
+    </div>
+  );
+}
+
+const EVENT_LABELS = {
+  batch_submitted:    { label: 'Batch Submitted', color: 'var(--navy)', icon: '📦' },
+  realtime_generated: { label: 'Real-time Shot',  color: 'var(--green)', icon: '⚡' },
+};
+
+function AuditTab({ users }) {
+  const [selectedUser, setSelectedUser] = useState('');
+  const [entries, setEntries]           = useState([]);
+  const [summary, setSummary]           = useState([]);
+  const [loading, setLoading]           = useState(false);
+
+  useEffect(() => {
+    // Load summary on mount
+    api('GET', '/api/admin/audit').then(d => setSummary(d.summary || [])).catch(() => {});
+  }, []);
+
+  async function loadUser(uid) {
+    setSelectedUser(uid);
+    if (!uid) return setEntries([]);
+    setLoading(true);
+    try {
+      const data = await api('GET', `/api/admin/audit?userId=${uid}`);
+      setEntries(data.entries || []);
+    } catch { setEntries([]); }
+    setLoading(false);
+  }
+
+  const totalCredits = entries.reduce((s, e) => s + (e.credits || 0), 0);
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+        <select value={selectedUser} onChange={e => loadUser(e.target.value)}
+          style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--gray-300)', fontSize: 13, minWidth: 220 }}>
+          <option value="">— Select user —</option>
+          {users.filter(u => u.role !== 'admin').map(u => (
+            <option key={u.id} value={u.id}>{u.email}</option>
+          ))}
+        </select>
+        {selectedUser && !loading && (
+          <span style={{ fontSize: 13, color: 'var(--gray-600)' }}>
+            {entries.length} events · <strong>{totalCredits} credits used</strong>
+          </span>
+        )}
+      </div>
+
+      {!selectedUser ? (
+        /* Summary table of all users */
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: 'var(--gray-100)' }}>
+              {['User', 'Total Events', 'Credits Used', 'Last Activity'].map(h => (
+                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {summary.map(s => (
+              <tr key={s.userId} style={{ borderBottom: '1px solid var(--gray-100)', cursor: 'pointer' }}
+                onClick={() => loadUser(s.userId)}>
+                <td style={{ padding: '8px 12px', color: 'var(--navy)', fontWeight: 500 }}>{s.email}</td>
+                <td style={{ padding: '8px 12px' }}>{s.totalEntries}</td>
+                <td style={{ padding: '8px 12px', fontWeight: 600 }}>{s.totalCreditsUsed}</td>
+                <td style={{ padding: '8px 12px', color: 'var(--gray-500)', fontSize: 11 }}>
+                  {s.lastActivity ? new Date(s.lastActivity).toLocaleString() : '—'}
+                </td>
+              </tr>
+            ))}
+            {summary.length === 0 && (
+              <tr><td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'var(--gray-500)' }}>No audit data yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      ) : loading ? (
+        <div style={{ textAlign: 'center', padding: 40 }}><div className="spinner spinner-dark" /></div>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ background: 'var(--gray-100)' }}>
+              {['Timestamp', 'Event', 'Details', 'Credits'].map(h => (
+                <th key={h} style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((e, i) => {
+              const ev = EVENT_LABELS[e.event] || { label: e.event, color: 'var(--gray-500)', icon: '•' };
+              return (
+                <tr key={i} style={{ borderBottom: '1px solid var(--gray-100)' }}>
+                  <td style={{ padding: '7px 12px', color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>
+                    {new Date(e.ts).toLocaleString()}
+                  </td>
+                  <td style={{ padding: '7px 12px' }}>
+                    <span style={{ color: ev.color, fontWeight: 600 }}>{ev.icon} {ev.label}</span>
+                  </td>
+                  <td style={{ padding: '7px 12px', color: 'var(--gray-600)', fontFamily: 'monospace', fontSize: 11 }}>
+                    {e.event === 'batch_submitted'
+                      ? `${e.itemCount} items · ${e.jobId || ''}`
+                      : e.engine || ''}
+                  </td>
+                  <td style={{ padding: '7px 12px', fontWeight: 600, color: e.credits ? 'var(--red)' : 'var(--gray-400)' }}>
+                    {e.credits ? `-${e.credits}` : '0'}
+                  </td>
+                </tr>
+              );
+            })}
+            {entries.length === 0 && (
+              <tr><td colSpan={4} style={{ padding: 24, textAlign: 'center', color: 'var(--gray-500)' }}>No activity logged for this user</td></tr>
+            )}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

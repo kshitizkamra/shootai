@@ -72,6 +72,30 @@ function getGlobalApiKeys() {
   return readAdmin().apiKeys || {};
 }
 
+// ── Audit log (append-only, admin-only read) ───────────────────────────────
+function appendAuditLog(userId, entry) {
+  try {
+    const dir = path.join(DATA_DIR, 'audit');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, `${userId}.jsonl`);
+    const line = JSON.stringify({ ts: new Date().toISOString(), userId, ...entry }) + '\n';
+    fs.appendFileSync(file, line);
+  } catch (e) {
+    console.error('[audit] write error:', e.message);
+  }
+}
+function readAuditLog(userId) {
+  try {
+    const file = path.join(DATA_DIR, 'audit', `${userId}.jsonl`);
+    if (!fs.existsSync(file)) return [];
+    return fs.readFileSync(file, 'utf8')
+      .split('\n').filter(Boolean)
+      .map(line => { try { return JSON.parse(line); } catch { return null; } })
+      .filter(Boolean)
+      .reverse(); // newest first
+  } catch { return []; }
+}
+
 // ── Credit helpers ─────────────────────────────────────────────────────────
 
 function addTransaction(userId, type, amount, description) {
@@ -364,6 +388,31 @@ app.post('/api/admin/restore', requireAdmin, (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── Audit log routes (admin only) ─────────────────────────────────────────
+
+app.get('/api/admin/audit', requireAdmin, (req, res) => {
+  const { userId } = req.query;
+  if (!userId) {
+    // Return list of users that have audit logs
+    try {
+      const dir = path.join(DATA_DIR, 'audit');
+      if (!fs.existsSync(dir)) return res.json({ entries: [] });
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.jsonl'));
+      const users = readUsers();
+      const summary = files.map(f => {
+        const uid = f.replace('.jsonl', '');
+        const user = users.find(u => u.id === uid);
+        const entries = readAuditLog(uid);
+        const credits = entries.filter(e => e.event === 'batch_submitted' || e.event === 'realtime_generated')
+          .reduce((sum, e) => sum + (e.credits || 0), 0);
+        return { userId: uid, email: user?.email || uid, totalEntries: entries.length, totalCreditsUsed: credits, lastActivity: entries[0]?.ts || null };
+      });
+      return res.json({ summary });
+    } catch (e) { return res.status(500).json({ error: e.message }); }
+  }
+  res.json({ entries: readAuditLog(userId) });
+});
+
 // ── Store routes ───────────────────────────────────────────────────────────
 
 app.get('/api/store/:key', requireAuth, requireActive, (req, res) => {
@@ -436,6 +485,7 @@ app.post('/api/ai/gemini-generate', requireAuth, requireActive, async (req, res)
           addTransaction(req.userId, 'credit_used', 3, '3 credits used (instant generation)');
           recordImages(req.userId, 1);
         }
+        appendAuditLog(req.userId, { event: 'realtime_generated', engine: 'gemini', credits: isAdmin ? 0 : 3 });
         return res.json({ base64: `data:${mime};base64,${part.inlineData.data}` });
       }
     }
@@ -475,6 +525,7 @@ app.post('/api/ai/openai-generate', requireAuth, requireActive, async (req, res)
       addTransaction(req.userId, 'credit_used', 3, '3 credits used (instant generation)');
       recordImages(req.userId, 1);
     }
+    appendAuditLog(req.userId, { event: 'realtime_generated', engine: 'openai', credits: isAdmin ? 0 : 3 });
     res.json({ base64: `data:image/png;base64,${b64}` });
   } catch (e) {
     if (!isAdmin) refundCredits(req.userId, 3, 'generation error');
@@ -516,6 +567,7 @@ app.post('/api/ai/openai-multi', requireAuth, requireActive, async (req, res) =>
       addTransaction(req.userId, 'credit_used', 3, '3 credits used (instant generation)');
       recordImages(req.userId, 1);
     }
+    appendAuditLog(req.userId, { event: 'realtime_generated', engine: 'openai-multi', credits: isAdmin ? 0 : 3 });
     res.json({ base64: `data:image/png;base64,${b64}` });
   } catch (e) {
     if (!isAdmin) refundCredits(req.userId, 3, 'generation error');
@@ -619,6 +671,7 @@ async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, item
       writeUserStore(uid, `batch_meta_${tempId}`, { ...tempMeta, creditsClaimed: true });
     }
     console.log(`[batch-submit] temp=${tempId} → real=${realJobId}`);
+    appendAuditLog(uid, { event: 'batch_submitted', jobId: realJobId, geminiName: job.name, itemCount, credits: itemCount });
   } catch (e) {
     console.error(`[batch-submit error] temp=${tempId}`, e.message);
     writeUserStore(uid, `batch_tempmap_${tempId}`, { failed: true, error: e.message });

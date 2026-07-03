@@ -10,7 +10,7 @@ const WORKFLOW_ICONS = {
   A: '🌅', B: '👤', C: '📸', D: '👗', E: '📦', Batch: '📦',
 };
 
-export default function History() {
+export default function History({ isAdmin = false }) {
   const [history, setHistory]         = useState([]);
   const [loading, setLoading]         = useState(true);
   const [filterWorkflow, setFilterWorkflow] = useState('all');
@@ -94,6 +94,7 @@ export default function History() {
             <HistoryItem
               key={entry.id}
               entry={entry}
+              isAdmin={isAdmin}
               onDelete={() => handleDelete(entry)}
               onDownload={() => handleDownload(entry)}
               onView={() => setLightbox(entry)}
@@ -124,7 +125,7 @@ export default function History() {
   );
 }
 
-function HistoryItem({ entry, onDelete, onDownload, onView }) {
+function HistoryItem({ entry, isAdmin, onDelete, onDownload, onView }) {
   const date  = entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '';
   const src   = entry.imageData || (entry.outputPath ? `file://${entry.outputPath}` : null);
   const name  = entry.label || entry.productName || 'Unnamed';
@@ -166,7 +167,7 @@ function HistoryItem({ entry, onDelete, onDownload, onView }) {
       <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
         {src && <button className="btn btn-ghost btn-sm" onClick={onView} title="View">👁</button>}
         {src && <button className="btn btn-ghost btn-sm" onClick={onDownload} title="Download">⬇</button>}
-        <button className="btn btn-danger btn-sm" onClick={onDelete} title="Delete">🗑</button>
+        {isAdmin && <button className="btn btn-danger btn-sm" onClick={onDelete} title="Delete">🗑</button>}
       </div>
     </div>
   );

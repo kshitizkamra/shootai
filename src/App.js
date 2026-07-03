@@ -123,8 +123,8 @@ export default function App() {
       case 'models':      return <ModelLibrary isAdmin={isAdmin} />;
       case 'backgrounds': return <BackgroundLibrary isAdmin={isAdmin} />;
       case 'poses':       return <PoseLibrary />;
-      case 'batch':       return <Batch />;
-      case 'history':     return <History />;
+      case 'batch':       return <Batch isAdmin={isAdmin} />;
+      case 'history':     return <History isAdmin={isAdmin} />;
       case 'admin':       return isAdmin ? <AdminPanel /> : null;
       case 'settings':    return isAdmin ? <Settings /> : null;
       case 'credits':     return !isAdmin ? <Credits credits={credits} /> : null;

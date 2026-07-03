@@ -16,7 +16,7 @@ const STATE_LABELS = {
   JOB_STATE_CANCELLING:  { label: 'Cancelling',           color: 'var(--gray-500)' },
 };
 
-export default function Batch() {
+export default function Batch({ isAdmin = false }) {
   const [tab, setTab] = useState('queue');
   const [queue, setQueue] = useState([]);
   const [selectedItems, setSelectedItems] = useState(new Set());
@@ -424,7 +424,7 @@ export default function Batch() {
                             </span>
                             {isActive && !isDownloading && <button className="btn btn-ghost btn-sm" onClick={() => handlePollJob(job.name)}>↻ Check</button>}
                             {isActive && !isDownloading && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--red)' }} onClick={() => handleCancelJob(job.name)}>Cancel</button>}
-                            <button className="btn btn-ghost btn-sm" style={{ color: 'var(--gray-500)' }} onClick={() => handleDeleteJob(job.name)} title="Remove from list">✕</button>
+                            {isAdmin && <button className="btn btn-ghost btn-sm" style={{ color: 'var(--gray-500)' }} onClick={() => handleDeleteJob(job.name)} title="Remove from list">✕</button>}
                           </div>
                         </div>
 
