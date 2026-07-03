@@ -8,6 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { GoogleGenAI } = require('@google/genai');
+const sharp = require('sharp');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -592,7 +593,7 @@ function releaseSubmissionLock(uid) {
 // Background task: calls ai.batches.create() and maps temp → real job name.
 // The HTTP endpoint responds immediately with a temp name so the client isn't
 // blocked waiting for Gemini to accept (potentially minutes of) image data.
-async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, itemCount, userId) {
+async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, itemCount, userId, resolution) {
   try {
     const ai = new GoogleGenAI({ apiKey: googleKey });
     const job = await ai.batches.create({
@@ -607,6 +608,7 @@ async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, item
       itemCount,
       creditsClaimed: false,
       userId,
+      resolution: resolution || '1080x1440',
     });
     // Map temp → real name, and clear temp credit reservation
     writeUserStore(uid, `batch_tempmap_${tempId}`, { realName: job.name });
@@ -668,7 +670,7 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
         contents: [{ role: 'user', parts }],
         config: {
           responseModalities: ['TEXT', 'IMAGE'],
-          imageConfig: { aspectRatio: r.aspectRatio || '3:4', imageSize: r.imageSize || '2K' },
+          imageConfig: { aspectRatio: r.aspectRatio || '3:4', imageSize: '1K' },
         },
       };
     });
@@ -692,7 +694,8 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
     });
 
     // Fire-and-forget — the real Gemini call happens in background (lock released in finally)
-    createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, rawRequests.length, isAdmin ? null : req.userId);
+    const batchResolution = rawRequests[0]?.resolution || '1080x1440';
+    createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, rawRequests.length, isAdmin ? null : req.userId, batchResolution);
 
     // Respond immediately so the client isn't blocked
     res.json({ name: tempName, state: 'JOB_STATE_PENDING', createTime: new Date().toISOString() });
@@ -795,7 +798,12 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
       const imgDir = path.join(getUserDataDir(uid), 'batch_images', jobId);
       if (!fs.existsSync(imgDir)) fs.mkdirSync(imgDir, { recursive: true });
 
-      const results = responses.map((r, idx) => {
+      // Parse target resolution from batch meta (e.g. '1080x1440' → 1080, 1440)
+      const meta0 = readUserStore(uid, `batch_meta_${jobId}`);
+      const resParts = (meta0?.resolution || '1080x1440').split('x').map(Number);
+      const [targetW, targetH] = resParts.length === 2 ? resParts : [1080, 1440];
+
+      const results = await Promise.all(responses.map(async (r, idx) => {
         // Gemini may nest under r.response or directly under r
         const parts =
           r?.response?.candidates?.[0]?.content?.parts ||
@@ -805,9 +813,13 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
           if (part?.inlineData?.data) {
             try {
               const imgBuffer = Buffer.from(part.inlineData.data, 'base64');
-              const ext = (part.inlineData.mimeType || 'image/jpeg').split('/')[1] || 'jpg';
-              const filename = `${idx}.${ext}`;
-              fs.writeFileSync(path.join(imgDir, filename), imgBuffer);
+              const filename = `${idx}.jpg`;
+              const filePath = path.join(imgDir, filename);
+              // Resize to target resolution using Sharp (lanczos, cover crop from top)
+              await sharp(imgBuffer)
+                .resize(targetW, targetH, { fit: 'cover', position: 'top' })
+                .jpeg({ quality: 92 })
+                .toFile(filePath);
               return `/batch-static/${uid}/batch_images/${jobId}/${filename}`;
             } catch (saveErr) {
               console.error(`[batch-dl] Failed to save image ${idx} for ${jobId}:`, saveErr.message);
@@ -816,7 +828,7 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
           }
         }
         return null;
-      });
+      }));
 
       writeUserStore(uid, `batch_results_${jobId}`, results);
       writeUserStore(uid, `batch_state_${jobId}`, { state: 'JOB_STATE_SUCCEEDED', ts: Date.now() });
