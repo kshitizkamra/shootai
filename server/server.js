@@ -682,6 +682,7 @@ async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, item
   try {
     // attempts:1 = no auto-retry — batches.create is NOT idempotent (retry creates a duplicate batch)
     // SDK formula: retries = attempts - 1, so attempts:1 → retries:0 → one total attempt
+    console.log(`[Batch Submit] Sending ${inlinedRequests.length} items to Google`);
     const ai = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 1 } } });
     const job = await ai.batches.create({
       model: 'models/gemini-3.1-flash-image',
