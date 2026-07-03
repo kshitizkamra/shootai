@@ -437,6 +437,22 @@ const PROMPT_TEMPLATES_SEED = path.join(__dirname, 'prompt_templates.seed.json')
 if (!fs.existsSync(PROMPT_TEMPLATES_FILE) && fs.existsSync(PROMPT_TEMPLATES_SEED)) {
   fs.copyFileSync(PROMPT_TEMPLATES_SEED, PROMPT_TEMPLATES_FILE);
   console.log('[server] prompt_templates.json seeded from seed file');
+} else if (fs.existsSync(PROMPT_TEMPLATES_FILE) && fs.existsSync(PROMPT_TEMPLATES_SEED)) {
+  try {
+    const existing = JSON.parse(fs.readFileSync(PROMPT_TEMPLATES_FILE, 'utf8'));
+    const seed = JSON.parse(fs.readFileSync(PROMPT_TEMPLATES_SEED, 'utf8'));
+    let merged = false;
+    for (const key of Object.keys(seed)) {
+      if (!(key in existing)) {
+        existing[key] = seed[key];
+        merged = true;
+        console.log(`[server] prompt_templates.json: added missing key "${key}" from seed`);
+      }
+    }
+    if (merged) fs.writeFileSync(PROMPT_TEMPLATES_FILE, JSON.stringify(existing, null, 2));
+  } catch (e) {
+    console.error('[server] prompt_templates merge error:', e.message);
+  }
 }
 
 function readPromptTemplates() {
