@@ -749,10 +749,9 @@ async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCoun
       config: { displayName: `shootai_${Date.now()}` },
     });
 
-    // ── Step 4: Delete uploaded files (expire in 48h anyway, clean up early) ──
-    Promise.allSettled([...uniqueImages.values()].map(meta =>
-      ai.files.delete({ name: meta.name }).catch(e => console.warn('[file-cleanup]', e.message))
-    ));
+    // NOTE: Do NOT delete uploaded files here — Google processes the batch asynchronously
+    // and needs the file URIs to remain accessible until their workers finish.
+    // Files auto-expire after 48h on Google's side.
 
     const realJobId = job.name.split('/').pop();
     // Save real job metadata for credit tracking
@@ -785,12 +784,23 @@ async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCoun
 }
 
 app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, res) => {
-  const { requests } = req.body;
+  const { requests, submissionId } = req.body;
   const { googleKey } = getGlobalApiKeys();
   if (!googleKey) return res.status(400).json({ error: 'Service not configured. Contact admin.' });
 
   const isAdmin = req.userRole === 'admin';
   const uid = isAdmin ? 'admin' : req.userId;
+
+  // ── Idempotency check — catches socket-level retries that duplicate the request ──
+  // The client generates a unique submissionId per submit click. If we've already
+  // processed this ID, return the existing job instead of creating a second batch.
+  if (submissionId) {
+    const existing = readUserStore(uid, `idem_${submissionId}`);
+    if (existing) {
+      console.log(`[Batch Submit] Duplicate request detected (submissionId=${submissionId}), returning existing job ${existing.name}`);
+      return res.json({ name: existing.name, state: 'JOB_STATE_PENDING' });
+    }
+  }
 
   // Check lock FIRST — before any heavy CPU work — to close the race window
   if (hasSubmissionLock(uid)) {
@@ -828,6 +838,11 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
       creditsClaimed: false,
       userId: isAdmin ? null : req.userId,
     });
+
+    // Lock in the idempotency key so any duplicate request returns this job
+    if (submissionId) {
+      writeUserStore(uid, `idem_${submissionId}`, { name: tempName, createdAt: new Date().toISOString() });
+    }
 
     // Fire-and-forget — File API upload + Gemini batch create happen in background
     const batchResolution = rawRequests[0]?.resolution || '1080x1440';

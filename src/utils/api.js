@@ -431,6 +431,8 @@ function resizeImageBase64(base64, maxPx = 1024) {
 }
 
 export async function submitBatchJob(items) {
+  // Unique ID for this submission — server uses it to reject duplicate requests
+  const submissionId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 8);
   // Resize all reference images in parallel before sending — keeps payload small
   const requests = await Promise.all(items.map(async item => {
     const resizedImages = await Promise.all((item.images || []).map(img => resizeImageBase64(img, 1024)));
@@ -440,7 +442,7 @@ export async function submitBatchJob(items) {
       aspectRatio: item.aspectRatio || '3:4',
     };
   }));
-  return await api.geminiBatchCreate({ requests });
+  return await api.geminiBatchCreate({ requests, submissionId });
 }
 
 export async function pollBatchJob(name) {

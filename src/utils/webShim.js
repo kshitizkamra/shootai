@@ -138,8 +138,8 @@ async function geminiGenerate({ model, images, prompt, aspectRatio }) {
   return data.base64;
 }
 
-async function geminiBatchCreate({ requests }) {
-  return await apiCall('/api/ai/gemini-batch-create', { requests });
+async function geminiBatchCreate({ requests, submissionId }) {
+  return await apiCall('/api/ai/gemini-batch-create', { requests, submissionId });
 }
 
 async function geminiBatchGet({ name }) {
