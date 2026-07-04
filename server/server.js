@@ -970,6 +970,27 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
       const [targetW, targetH] = resParts.length === 2 ? resParts : [1080, 1440];
 
       const results = await Promise.all(responses.map(async (r, idx) => {
+        // ── DIAGNOSTIC LOGGING — remove after confirming response structure ──
+        console.log(`[batch-dl-diag] response[${idx}] top-level keys: ${Object.keys(r || {}).join(', ')}`);
+        const rResp = r?.response;
+        if (rResp) {
+          console.log(`[batch-dl-diag] response[${idx}].response keys: ${Object.keys(rResp).join(', ')}`);
+          const cands = rResp?.candidates;
+          if (cands?.length) {
+            console.log(`[batch-dl-diag] response[${idx}] candidates[0] keys: ${Object.keys(cands[0] || {}).join(', ')}`);
+            const content = cands[0]?.content;
+            if (content) {
+              console.log(`[batch-dl-diag] response[${idx}] content keys: ${Object.keys(content).join(', ')}`);
+              const pts = content?.parts || [];
+              console.log(`[batch-dl-diag] response[${idx}] parts count: ${pts.length}`);
+              pts.forEach((p, pi) => console.log(`[batch-dl-diag] response[${idx}] part[${pi}] keys: ${Object.keys(p || {}).join(', ')}${p?.fileData ? ' fileUri='+p.fileData.fileUri?.substring(0,60) : ''}${p?.text ? ' text='+p.text.substring(0,80) : ''}`));
+            }
+          }
+        } else {
+          console.log(`[batch-dl-diag] response[${idx}] no .response — direct keys: ${Object.keys(r?.candidates?.[0] || r || {}).join(', ')}`);
+        }
+        // ── END DIAGNOSTIC ──
+
         // Gemini may nest under r.response or directly under r
         const parts =
           r?.response?.candidates?.[0]?.content?.parts ||
