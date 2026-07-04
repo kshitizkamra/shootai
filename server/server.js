@@ -695,6 +695,9 @@ function releaseSubmissionLock(uid) {
 // The HTTP endpoint responds immediately with a temp name so the client isn't
 // blocked waiting for Gemini to accept image data.
 async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCount, userId, resolution) {
+  // Unique trace ID — lets us confirm exactly how many times this function is entered per submission
+  const traceId = Math.random().toString(36).substr(2, 6).toUpperCase();
+  console.log(`[Batch Submit ${traceId}] ENTER — tempId=${tempId} items=${rawRequests.length}`);
   // Two separate SDK instances:
   //   aiUpload — attempts:1 (SDK retries file uploads on 429; safe, no duplicate risk)
   //   aiBatch  — attempts:0 (no retries on batches.create; any retry creates a duplicate batch)
@@ -714,7 +717,7 @@ async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCoun
       }
     }
     const totalRefs = rawRequests.reduce((s, r) => s + (r.images || []).length, 0);
-    console.log(`[Batch Submit] Uploading ${uniqueImages.size} unique images to File API (${totalRefs} total refs across ${rawRequests.length} items)`);
+    console.log(`[Batch Submit ${traceId}] Uploading ${uniqueImages.size} unique images to File API (${totalRefs} total refs across ${rawRequests.length} items)`);
 
     // ── Step 2: Upload each unique image in parallel ──────────────────────────
     // Retries once on 429 (rate limit) — safe because a failed upload creates nothing on Google's side.
@@ -728,7 +731,7 @@ async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCoun
       meta.name = uploaded.name;
     };
     await Promise.all([...uniqueImages.entries()].map(([b64, meta]) => uploadWithRetry(b64, meta)));
-    console.log(`[Batch Submit] All images uploaded. Sending ${rawRequests.length} items to Google`);
+    console.log(`[Batch Submit ${traceId}] All images uploaded. Sending ${rawRequests.length} items to Google`);
 
     // ── Step 3: Build batch requests using fileData URIs (~2KB vs ~15MB) ──────
     const inlinedRequests = rawRequests.map(r => {
@@ -749,7 +752,9 @@ async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCoun
     // Retries once on 429 only — safe because 429 means Google rejected the request before
     // creating any batch job, so retrying cannot produce a duplicate.
     // aiBatch has attempts:0 — no SDK retry; a retry here would create a duplicate batch job
+    console.log(`[Batch Submit ${traceId}] Calling batches.create...`);
     const job = await aiBatch.batches.create({ model: 'models/gemini-3.1-flash-image', src: inlinedRequests, config: { displayName: `shootai_${Date.now()}` } });
+    console.log(`[Batch Submit ${traceId}] batches.create returned: ${job.name}`);
 
     // NOTE: Do NOT delete uploaded files here — Google processes the batch asynchronously
     // and needs the file URIs to remain accessible until their workers finish.
