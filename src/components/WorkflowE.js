@@ -94,6 +94,7 @@ export default function WorkflowE({ onBack, onNavigate }) {
   const [resolution, setResolution] = useState('1080x1440');
   const [geminiError, setGeminiError] = useState('');
   const [batchAdded, setBatchAdded] = useState(0);
+  const [adding, setAdding] = useState(false);
   const skipGeminiRef = useRef(false);
   const [genPhase, setGenPhase] = useState('idle'); // 'idle' | 'preview_done'
 
@@ -292,10 +293,12 @@ export default function WorkflowE({ onBack, onNavigate }) {
 
   // ── Add to Batch (all shots) ──────────────────────────────────────────────
   async function handleAddToBatch() {
+    if (adding) return;
     const vp = products.filter(p => p.images && p.images.length > 0 && p.name);
     if (vp.length === 0) return setError('Please add at least one product with an image and name.');
     if (!selectedModel) return setError('Please select a model.');
     if (selectedShots.length === 0 && !includeDetail) return setError('Please select at least one shot type.');
+    setAdding(true);
 
     const shots = buildShotList();
     const modelBase64 = selectedModel.base64;
@@ -351,6 +354,7 @@ export default function WorkflowE({ onBack, onNavigate }) {
     await addManyToBatchQueue(allItems);
     setBatchAdded(allItems.length);
     setTimeout(() => setBatchAdded(0), 3000);
+    setAdding(false);
     if (onNavigate) onNavigate('batch');
   }
 
@@ -599,7 +603,7 @@ export default function WorkflowE({ onBack, onNavigate }) {
 
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-gold btn-lg" style={{ flex: 1 }} onClick={handleAddToBatch}
-            disabled={generating || validProducts.length === 0 || !selectedModel}>
+            disabled={generating || adding || validProducts.length === 0 || !selectedModel}>
             <div>
               {batchAdded > 0 ? `✓ ${batchAdded} queued` : '📦 Add to Batch'}
               <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.8 }}>
