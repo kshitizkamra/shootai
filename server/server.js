@@ -743,14 +743,17 @@ async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCoun
       return {
         contents: [{ role: 'user', parts }],
         config: {
-          responseModalities: ['TEXT', 'IMAGE'],
+          responseModalities: ['IMAGE'],  // IMAGE only — TEXT was causing Gemini to run 2 passes per item (double billing)
+          candidateCount: 1,              // Explicit 1 — default was likely 2, causing 2 images generated per item
           imageConfig: { aspectRatio: r.aspectRatio || '3:4', imageSize: '1K' },
         },
       };
     });
 
-    // Retries once on 429 only — safe because 429 means Google rejected the request before
-    // creating any batch job, so retrying cannot produce a duplicate.
+    // Log exactly what we're sending so we can verify candidateCount in logs
+    console.log(`[Batch Submit ${traceId}] Request config sample: ${JSON.stringify(inlinedRequests[0]?.config)}`);
+    console.log(`[Batch Submit ${traceId}] Total inlinedRequests: ${inlinedRequests.length} (expected: ${rawRequests.length})`);
+
     // aiBatch has attempts:0 — no SDK retry; a retry here would create a duplicate batch job
     console.log(`[Batch Submit ${traceId}] Calling batches.create...`);
     const job = await aiBatch.batches.create({ model: 'models/gemini-3.1-flash-image', src: inlinedRequests, config: { displayName: `shootai_${Date.now()}` } });
@@ -792,6 +795,7 @@ async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCoun
 
 app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, res) => {
   const { requests, submissionId } = req.body;
+  console.log(`[batch-create-hit] submissionId=${submissionId} items=${(requests||[]).length} uid=${req.userId} ip=${req.ip} at=${new Date().toISOString()}`);
   const { googleKey } = getGlobalApiKeys();
   if (!googleKey) return res.status(400).json({ error: 'Service not configured. Contact admin.' });
 
