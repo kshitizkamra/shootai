@@ -695,8 +695,11 @@ function releaseSubmissionLock(uid) {
 // The HTTP endpoint responds immediately with a temp name so the client isn't
 // blocked waiting for Gemini to accept image data.
 async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCount, userId, resolution) {
-  // attempts:0 = zero retries — batches.create is NOT idempotent (any retry creates a duplicate batch)
-  const ai = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 0 } } });
+  // Two separate SDK instances:
+  //   aiUpload — attempts:1 (SDK retries file uploads on 429; safe, no duplicate risk)
+  //   aiBatch  — attempts:0 (no retries on batches.create; any retry creates a duplicate batch)
+  const aiUpload = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 1 } } });
+  const aiBatch  = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 0 } } });
   const uniqueImages = new Map(); // base64 → { mimeType, uri, name }
   try {
     // ── Step 1: Deduplicate images across all requests ────────────────────────
@@ -719,19 +722,10 @@ async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCoun
       const data = b64.replace(/^data:image\/\w+;base64,/, '');
       const buffer = Buffer.from(data, 'base64');
       const blob = new Blob([buffer], { type: meta.mimeType });
-      try {
-        const uploaded = await ai.files.upload({ file: blob, config: { mimeType: meta.mimeType, displayName: 'shootai_batch_img' } });
-        meta.uri = uploaded.uri;
-        meta.name = uploaded.name;
-      } catch (e) {
-        if (e.message?.includes('Too Many Requests') || e.message?.includes('429')) {
-          console.log(`[Batch Submit] File upload rate limited — waiting 20s before retry`);
-          await new Promise(r => setTimeout(r, 20000));
-          const uploaded = await ai.files.upload({ file: blob, config: { mimeType: meta.mimeType, displayName: 'shootai_batch_img' } });
-          meta.uri = uploaded.uri;
-          meta.name = uploaded.name;
-        } else { throw e; }
-      }
+      // aiUpload has attempts:1 — SDK handles the 429 retry automatically
+      const uploaded = await aiUpload.files.upload({ file: blob, config: { mimeType: meta.mimeType, displayName: 'shootai_batch_img' } });
+      meta.uri = uploaded.uri;
+      meta.name = uploaded.name;
     };
     await Promise.all([...uniqueImages.entries()].map(([b64, meta]) => uploadWithRetry(b64, meta)));
     console.log(`[Batch Submit] All images uploaded. Sending ${rawRequests.length} items to Google`);
@@ -754,16 +748,8 @@ async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCoun
 
     // Retries once on 429 only — safe because 429 means Google rejected the request before
     // creating any batch job, so retrying cannot produce a duplicate.
-    let job;
-    try {
-      job = await ai.batches.create({ model: 'models/gemini-3.1-flash-image', src: inlinedRequests, config: { displayName: `shootai_${Date.now()}` } });
-    } catch (e) {
-      if (e.message?.includes('Too Many Requests') || e.message?.includes('429')) {
-        console.log(`[Batch Submit] Batch create rate limited — waiting 20s before retry`);
-        await new Promise(r => setTimeout(r, 20000));
-        job = await ai.batches.create({ model: 'models/gemini-3.1-flash-image', src: inlinedRequests, config: { displayName: `shootai_${Date.now()}` } });
-      } else { throw e; }
-    }
+    // aiBatch has attempts:0 — no SDK retry; a retry here would create a duplicate batch job
+    const job = await aiBatch.batches.create({ model: 'models/gemini-3.1-flash-image', src: inlinedRequests, config: { displayName: `shootai_${Date.now()}` } });
 
     // NOTE: Do NOT delete uploaded files here — Google processes the batch asynchronously
     // and needs the file URIs to remain accessible until their workers finish.
