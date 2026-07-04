@@ -980,33 +980,19 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
       const resParts = (preMeta?.resolution || '1080x1440').split('x').map(Number);
       const [targetW, targetH] = resParts.length === 2 ? resParts : [1080, 1440];
 
-      const results = await Promise.all(responses.map(async (r, idx) => {
-        // ── DIAGNOSTIC LOGGING — remove after confirming response structure ──
-        console.log(`[batch-dl-diag] response[${idx}] top-level keys: ${Object.keys(r || {}).join(', ')}`);
-        const rResp = r?.response;
-        if (rResp) {
-          console.log(`[batch-dl-diag] response[${idx}].response keys: ${Object.keys(rResp).join(', ')}`);
-          const cands = rResp?.candidates;
-          if (cands?.length) {
-            console.log(`[batch-dl-diag] response[${idx}] candidates[0] keys: ${Object.keys(cands[0] || {}).join(', ')}`);
-            const content = cands[0]?.content;
-            if (content) {
-              console.log(`[batch-dl-diag] response[${idx}] content keys: ${Object.keys(content).join(', ')}`);
-              const pts = content?.parts || [];
-              console.log(`[batch-dl-diag] response[${idx}] parts count: ${pts.length}`);
-              pts.forEach((p, pi) => console.log(`[batch-dl-diag] response[${idx}] part[${pi}] keys: ${Object.keys(p || {}).join(', ')}${p?.fileData ? ' fileUri='+p.fileData.fileUri?.substring(0,60) : ''}${p?.text ? ' text='+p.text.substring(0,80) : ''}`));
-            }
-          }
-        } else {
-          console.log(`[batch-dl-diag] response[${idx}] no .response — direct keys: ${Object.keys(r?.candidates?.[0] || r || {}).join(', ')}`);
-        }
-        // ── END DIAGNOSTIC ──
-
+      // Process images sequentially (not parallel) to avoid OOM on the 1GB VM.
+      // Promise.all was spiking RAM by loading all 5 images simultaneously —
+      // causing the first download attempt to fail, which triggered a retry
+      // (second GET to Gemini) and double-billed on GCE.
+      const results = [];
+      for (let idx = 0; idx < responses.length; idx++) {
+        const r = responses[idx];
         // Gemini may nest under r.response or directly under r
         const parts =
           r?.response?.candidates?.[0]?.content?.parts ||
           r?.candidates?.[0]?.content?.parts ||
           [];
+        let saved = null;
         for (const part of parts) {
           if (part?.inlineData?.data) {
             try {
@@ -1018,15 +1004,16 @@ async function downloadBatchImages(googleKey, name, uid, jobId) {
                 .resize(targetW, targetH, { fit: 'cover', position: 'top' })
                 .jpeg({ quality: 92 })
                 .toFile(filePath);
-              return `/batch-static/${uid}/batch_images/${jobId}/${filename}`;
+              saved = `/batch-static/${uid}/batch_images/${jobId}/${filename}`;
+              console.log(`[batch-dl] Saved image ${idx + 1}/${responses.length} for ${jobId}`);
             } catch (saveErr) {
               console.error(`[batch-dl] Failed to save image ${idx} for ${jobId}:`, saveErr.message);
-              return null;
             }
+            break; // only first image part per response
           }
         }
-        return null;
-      }));
+        results.push(saved);
+      }
 
       writeUserStore(uid, `batch_results_${jobId}`, results);
       writeUserStore(uid, `batch_state_${jobId}`, { state: 'JOB_STATE_SUCCEEDED', ts: Date.now() });
