@@ -695,8 +695,8 @@ function releaseSubmissionLock(uid) {
 // The HTTP endpoint responds immediately with a temp name so the client isn't
 // blocked waiting for Gemini to accept image data.
 async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCount, userId, resolution) {
-  // attempts:1 = no auto-retry — batches.create is NOT idempotent (retry creates a duplicate batch)
-  const ai = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 1 } } });
+  // attempts:0 = zero retries — batches.create is NOT idempotent (any retry creates a duplicate batch)
+  const ai = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 0 } } });
   const uniqueImages = new Map(); // base64 → { mimeType, uri, name }
   try {
     // ── Step 1: Deduplicate images across all requests ────────────────────────
