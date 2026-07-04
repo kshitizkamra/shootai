@@ -465,7 +465,7 @@ async function buildShotPromptE(shotType, category, hasPose = false, t) {
     const poseAction = hasPose
       ? ((t.e_styled||{}).pose_action_with_pose || '')
       : ((t.e_styled||{}).pose_action_without_pose || '');
-    return `${(t.garment_orientation||{})['Styled'] || ''} ${(t.e_styled||{}).garment_absolute_lock || ''} ${(t.global||{}).garment_shape_lock || ''} ${(t.e_styled||{}).garment_accessories || ''} ${identity} ${poseAction} ${(t.e_styled||{}).framing || ''} ${bgLock} ${(t.e_styled||{}).garment_fidelity || ''} ${(t.e_styled||{}).print_lock || ''} ${framingLock}`;
+    return `${(t.garment_orientation||{})['Styled'] || ''} ${(t.e_styled||{}).garment_absolute_lock || ''} ${(t.global||{}).garment_shape_lock || ''} ${(t.e_styled||{}).garment_accessories || ''} ${identity} ${poseAction} ${(t.e_styled||{}).framing || ''} ${bgLock} ${(t.e_styled||{}).garment_fidelity || ''} ${(t.e_styled||{}).print_lock || ''} ${framingLock} ${(t.e_styled||{}).scene_integration || ''}`;
   }
   if (shotType === 'Detail Close-Up') {
     const closeupIdentityNote = `Any skin, hair, or partial face visible in this tight crop MUST belong to the exact same person from reference image 1 — do NOT generate a different person's face, neck, or body for this close-up.`;
