@@ -714,17 +714,26 @@ async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCoun
     console.log(`[Batch Submit] Uploading ${uniqueImages.size} unique images to File API (${totalRefs} total refs across ${rawRequests.length} items)`);
 
     // ── Step 2: Upload each unique image in parallel ──────────────────────────
-    await Promise.all([...uniqueImages.entries()].map(async ([b64, meta]) => {
+    // Retries once on 429 (rate limit) — safe because a failed upload creates nothing on Google's side.
+    const uploadWithRetry = async (b64, meta) => {
       const data = b64.replace(/^data:image\/\w+;base64,/, '');
       const buffer = Buffer.from(data, 'base64');
       const blob = new Blob([buffer], { type: meta.mimeType });
-      const uploaded = await ai.files.upload({
-        file: blob,
-        config: { mimeType: meta.mimeType, displayName: 'shootai_batch_img' },
-      });
-      meta.uri = uploaded.uri;
-      meta.name = uploaded.name;
-    }));
+      try {
+        const uploaded = await ai.files.upload({ file: blob, config: { mimeType: meta.mimeType, displayName: 'shootai_batch_img' } });
+        meta.uri = uploaded.uri;
+        meta.name = uploaded.name;
+      } catch (e) {
+        if (e.message?.includes('Too Many Requests') || e.message?.includes('429')) {
+          console.log(`[Batch Submit] File upload rate limited — waiting 20s before retry`);
+          await new Promise(r => setTimeout(r, 20000));
+          const uploaded = await ai.files.upload({ file: blob, config: { mimeType: meta.mimeType, displayName: 'shootai_batch_img' } });
+          meta.uri = uploaded.uri;
+          meta.name = uploaded.name;
+        } else { throw e; }
+      }
+    };
+    await Promise.all([...uniqueImages.entries()].map(([b64, meta]) => uploadWithRetry(b64, meta)));
     console.log(`[Batch Submit] All images uploaded. Sending ${rawRequests.length} items to Google`);
 
     // ── Step 3: Build batch requests using fileData URIs (~2KB vs ~15MB) ──────
@@ -743,11 +752,18 @@ async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCoun
       };
     });
 
-    const job = await ai.batches.create({
-      model: 'models/gemini-3.1-flash-image',
-      src: inlinedRequests,
-      config: { displayName: `shootai_${Date.now()}` },
-    });
+    // Retries once on 429 only — safe because 429 means Google rejected the request before
+    // creating any batch job, so retrying cannot produce a duplicate.
+    let job;
+    try {
+      job = await ai.batches.create({ model: 'models/gemini-3.1-flash-image', src: inlinedRequests, config: { displayName: `shootai_${Date.now()}` } });
+    } catch (e) {
+      if (e.message?.includes('Too Many Requests') || e.message?.includes('429')) {
+        console.log(`[Batch Submit] Batch create rate limited — waiting 20s before retry`);
+        await new Promise(r => setTimeout(r, 20000));
+        job = await ai.batches.create({ model: 'models/gemini-3.1-flash-image', src: inlinedRequests, config: { displayName: `shootai_${Date.now()}` } });
+      } else { throw e; }
+    }
 
     // NOTE: Do NOT delete uploaded files here — Google processes the batch asynchronously
     // and needs the file URIs to remain accessible until their workers finish.
