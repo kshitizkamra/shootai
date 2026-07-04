@@ -741,34 +741,4 @@ export default function WorkflowE({ onBack, onNavigate }) {
                       )}
                       {item.status === 'error' && (
                         <div style={{ textAlign: 'center', padding: 8 }}>
-                          <div style={{ fontSize: 20 }}>⚠</div>
-                          <div style={{ fontSize: 9, color: 'var(--red)', marginTop: 4 }}>{item.error?.slice(0, 60)}</div>
-                        </div>
-                      )}
-                      {item.status === 'idle' && (
-                        <span style={{ fontSize: 28, opacity: 0.3 }}>📷</span>
-                      )}
-                      {item.saved && (
-                        <div style={{ position: 'absolute', top: 4, right: 4, background: 'var(--green)', color: '#fff', borderRadius: 4, fontSize: 9, padding: '2px 5px' }}>✓ Saved</div>
-                      )}
-                    </div>
-                    <div style={{ padding: '6px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 10, color: 'var(--gray-600)', fontWeight: 600 }}>{shot}</span>
-                      {item.status === 'done' && item.base64 && !item.saved && (
-                        <button
-                          className="btn btn-primary btn-sm"
-                          style={{ fontSize: 9, padding: '2px 7px' }}
-                          onClick={() => handleApproveOne(key, product.name, shot)}
-                        >Save</button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+                    

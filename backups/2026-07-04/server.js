@@ -691,69 +691,20 @@ function releaseSubmissionLock(uid) {
   try { fs.unlinkSync(getSubmissionLockPath(uid)); } catch {}
 }
 
-// Background task: uploads images to File API, calls ai.batches.create(), maps temp → real job name.
+// Background task: calls ai.batches.create() and maps temp → real job name.
 // The HTTP endpoint responds immediately with a temp name so the client isn't
-// blocked waiting for Gemini to accept image data.
-async function createBatchJobAsync(googleKey, rawRequests, uid, tempId, itemCount, userId, resolution) {
-  // attempts:1 = no auto-retry — batches.create is NOT idempotent (retry creates a duplicate batch)
-  const ai = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 1 } } });
-  const uniqueImages = new Map(); // base64 → { mimeType, uri, name }
+// blocked waiting for Gemini to accept (potentially minutes of) image data.
+async function createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, itemCount, userId, resolution) {
   try {
-    // ── Step 1: Deduplicate images across all requests ────────────────────────
-    // A 5-shot batch reuses the same model/product/background images repeatedly.
-    // Dedup means we upload each unique image once, not once per shot.
-    for (const r of rawRequests) {
-      for (const img of (r.images || [])) {
-        if (!uniqueImages.has(img)) {
-          const mimeType = img.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
-          uniqueImages.set(img, { mimeType, uri: null, name: null });
-        }
-      }
-    }
-    const totalRefs = rawRequests.reduce((s, r) => s + (r.images || []).length, 0);
-    console.log(`[Batch Submit] Uploading ${uniqueImages.size} unique images to File API (${totalRefs} total refs across ${rawRequests.length} items)`);
-
-    // ── Step 2: Upload each unique image in parallel ──────────────────────────
-    await Promise.all([...uniqueImages.entries()].map(async ([b64, meta]) => {
-      const data = b64.replace(/^data:image\/\w+;base64,/, '');
-      const buffer = Buffer.from(data, 'base64');
-      const blob = new Blob([buffer], { type: meta.mimeType });
-      const uploaded = await ai.files.upload({
-        file: blob,
-        config: { mimeType: meta.mimeType, displayName: 'shootai_batch_img' },
-      });
-      meta.uri = uploaded.uri;
-      meta.name = uploaded.name;
-    }));
-    console.log(`[Batch Submit] All images uploaded. Sending ${rawRequests.length} items to Google`);
-
-    // ── Step 3: Build batch requests using fileData URIs (~2KB vs ~15MB) ──────
-    const inlinedRequests = rawRequests.map(r => {
-      const parts = [{ text: r.prompt }];
-      for (const img of (r.images || [])) {
-        const meta = uniqueImages.get(img);
-        parts.push({ fileData: { fileUri: meta.uri, mimeType: meta.mimeType } });
-      }
-      return {
-        contents: [{ role: 'user', parts }],
-        config: {
-          responseModalities: ['TEXT', 'IMAGE'],
-          imageConfig: { aspectRatio: r.aspectRatio || '3:4', imageSize: '1K' },
-        },
-      };
-    });
-
+    // attempts:1 = no auto-retry — batches.create is NOT idempotent (retry creates a duplicate batch)
+    // SDK formula: retries = attempts - 1, so attempts:1 → retries:0 → one total attempt
+    console.log(`[Batch Submit] Sending ${inlinedRequests.length} items to Google`);
+    const ai = new GoogleGenAI({ apiKey: googleKey, httpOptions: { retryOptions: { attempts: 1 } } });
     const job = await ai.batches.create({
       model: 'models/gemini-3.1-flash-image',
       src: inlinedRequests,
       config: { displayName: `shootai_${Date.now()}` },
     });
-
-    // ── Step 4: Delete uploaded files (expire in 48h anyway, clean up early) ──
-    Promise.allSettled([...uniqueImages.values()].map(meta =>
-      ai.files.delete({ name: meta.name }).catch(e => console.warn('[file-cleanup]', e.message))
-    ));
-
     const realJobId = job.name.split('/').pop();
     // Save real job metadata for credit tracking
     writeUserStore(uid, `batch_meta_${realJobId}`, {
@@ -813,9 +764,28 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
   }
 
   try {
-    // Pass raw requests to background task — File API upload happens there
+    // Build inlinedRequests and immediately clear source from memory
     const rawRequests = [...(requests || [])];
     req.body = null; // allow GC to collect parsed request body
+    const inlinedRequests = rawRequests.map(r => {
+      const parts = [{ text: r.prompt }];
+      (r.images || []).forEach(img => {
+        parts.push({
+          inlineData: {
+            mimeType: img.startsWith('data:image/png') ? 'image/png' : 'image/jpeg',
+            data: img.replace(/^data:image\/\w+;base64,/, ''),
+          },
+        });
+      });
+      r.images = null; // free image data from source as we go
+      return {
+        contents: [{ role: 'user', parts }],
+        config: {
+          responseModalities: ['TEXT', 'IMAGE'],
+          imageConfig: { aspectRatio: r.aspectRatio || '3:4', imageSize: '1K' },
+        },
+      };
+    });
 
     // Generate a temp name — client stores this immediately, no waiting
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
@@ -829,9 +799,9 @@ app.post('/api/ai/gemini-batch-create', requireAuth, requireActive, async (req, 
       userId: isAdmin ? null : req.userId,
     });
 
-    // Fire-and-forget — File API upload + Gemini batch create happen in background
+    // Fire-and-forget — the real Gemini call happens in background (lock released only on failure)
     const batchResolution = rawRequests[0]?.resolution || '1080x1440';
-    createBatchJobAsync(googleKey, rawRequests, uid, tempId, rawRequests.length, isAdmin ? null : req.userId, batchResolution);
+    createBatchJobAsync(googleKey, inlinedRequests, uid, tempId, rawRequests.length, isAdmin ? null : req.userId, batchResolution);
 
     // Respond immediately so the client isn't blocked
     res.json({ name: tempName, state: 'JOB_STATE_PENDING', createTime: new Date().toISOString() });
@@ -1124,41 +1094,4 @@ app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
 app.post('/api/ai/gemini-batch-cancel', requireAuth, async (req, res) => {
   const { name } = req.body;
   const { googleKey } = getGlobalApiKeys();
-  if (!googleKey) return res.status(400).json({ error: 'Service not configured. Contact admin.' });
-
-  try {
-    const ai = new GoogleGenAI({ apiKey: googleKey });
-    await ai.batches.cancel({ name });
-    res.json({ ok: true });
-  } catch (e) {
-    res.status(500).json({ error: e.message || String(e) });
-  }
-});
-
-// ── Static files + React catch-all (AFTER all API routes) ─────────────────
-
-if (fs.existsSync(BUILD_DIR)) {
-  app.use(express.static(BUILD_DIR));
-  app.get('*', (req, res) => res.sendFile(path.join(BUILD_DIR, 'index.html')));
-}
-
-// ── JSON 404 / error fallback ──────────────────────────────────────────────
-
-app.use((req, res) => {
-  res.status(404).json({ error: `Cannot ${req.method} ${req.path}` });
-});
-
-app.use((err, req, res, next) => {
-  console.error('Server error:', err.message);
-  res.status(500).json({ error: err.message });
-});
-
-// ── Start ──────────────────────────────────────────────────────────────────
-
-app.listen(PORT, () => {
-  console.log(`\nShootAI server running on port ${PORT}`);
-  console.log(`Admin login: ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`);
-  console.log(`Data dir: ${DATA_DIR}\n`);
-});
-
-module.exports = app;
+  if (!googleKey) return res.status(400).json({ error: 'Service not configured. Contact a
