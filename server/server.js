@@ -882,9 +882,11 @@ function normalizeState(s) {
 // Phase 1: Fast status-only check via REST — no image download.
 // Uses axios (not fetch) so it works on Node 14/16 where fetch isn't global.
 // No-cache headers prevent GCE network layers from returning stale responses.
-// Note: Gemini REST API returns an LRO object { done, response } not a direct Batch object.
+// fields param limits response to status fields only — excludes inline image data so this
+// call never triggers GCE billing (only downloadBatchImages does the billable retrieval).
 async function checkBatchState(googleKey, name) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}`;
+  // &fields= tells Gemini to return only these fields — no inline responses, no billing
+  const url = `https://generativelanguage.googleapis.com/v1beta/${name}?key=${encodeURIComponent(googleKey)}&fields=name%2Cdone%2Cmetadata%2Cerror%2Cstate`;
   try {
     const { data } = await axios.get(url, {
       timeout: 20000,
@@ -894,14 +896,16 @@ async function checkBatchState(googleKey, name) {
         'Expires': '0',
       },
     });
-    // Google returns LRO format: { done: bool, response: { state, output }, error: {...} }
+    // LRO format: { done: bool, metadata: { state: '...' }, error: {...} }
     if (data.done !== undefined) {
       if (data.error) throw new Error(data.error.message);
       return data.done ? 'JOB_STATE_SUCCEEDED' : 'JOB_STATE_RUNNING';
     }
+    // Gemini returns { metadata: { state: 'JOB_STATE_...' } } without top-level done
+    if (data.metadata?.state) return normalizeState(data.metadata.state);
     // Direct batch format fallback
-    if (!data.state) throw new Error("API response missing both 'state' and 'done' fields.");
-    return normalizeState(data.state);
+    if (data.state) return normalizeState(data.state);
+    throw new Error("API response missing 'state', 'done', or 'metadata.state'.");
   } catch (e) {
     if (e.response?.status === 404) return 'JOB_STATE_NOT_FOUND';
     throw new Error(`REST check failed: ${e.response?.status || e.code || e.message}`);
