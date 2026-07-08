@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getModels, getBackgrounds, getPoses, getSettings, saveSettings } from '../utils/storage';
-import { prepareBatchFabricShotF, getPromptTemplates } from '../utils/api';
+import { prepareBatchFabricShotF, tileSwatch, getPromptTemplates } from '../utils/api';
 import { addManyToBatchQueue } from '../utils/batchQueue';
 import GenerationOptions from './GenerationOptions';
 
@@ -217,6 +217,17 @@ export default function WorkflowF({ onBack, onNavigate }) {
     try {
       const settings = await getSettings();
 
+      // Tile 2×2 server-side before batching
+      let tiledBase64;
+      try {
+        tiledBase64 = await tileSwatch(swatchBase64, swatchRepeatW, swatchRepeatH);
+      } catch (e) {
+        setError('Swatch tiling failed: ' + e.message);
+        addingRef.current = false;
+        setAdding(false);
+        return;
+      }
+
       const allItems = await Promise.all(shots.map(shot => {
         const isDetail = shot === 'Detail Close-Up';
         return prepareBatchFabricShotF({
@@ -224,7 +235,7 @@ export default function WorkflowF({ onBack, onNavigate }) {
           productImagesBase64: product.images.map(i => i.base64),
           backgroundImageBase64: selectedBg?.base64 || null,
           poseImageBase64: selectedPose?.base64 || null,
-          swatchBase64: swatchBase64,
+          swatchTiledBase64: tiledBase64,
           swatchCmW: swatchCmW,
           swatchCmH: swatchCmH,
           shotType: shot,

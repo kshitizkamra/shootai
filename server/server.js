@@ -497,8 +497,8 @@ app.put('/api/admin/prompt-templates', requireAdmin, (req, res) => {
 // ── Swatch tiling ─────────────────────────────────────────────────────────
 
 app.post('/api/tile-swatch', requireAuth, requireActive, async (req, res) => {
-  // Tiles a swatch image using a given repeat unit (repeatW × repeatH px of the original).
-  // Output: 1024×1024 JPEG tiled image as base64.
+  // Always produces a clean 2×2 grid of the repeat unit.
+  // Output canvas = tileW*2 × tileH*2, capped at 1024px per side.
   const { swatchBase64, repeatW, repeatH } = req.body;
   if (!swatchBase64 || !repeatW || !repeatH)
     return res.status(400).json({ error: 'swatchBase64, repeatW, and repeatH required' });
@@ -513,22 +513,25 @@ app.post('/api/tile-swatch', requireAuth, requireActive, async (req, res) => {
     const tileW = Math.max(4, Math.min(Math.round(repeatW), srcW));
     const tileH = Math.max(4, Math.min(Math.round(repeatH), srcH));
 
-    // Extract the repeat tile from top-left of the swatch
-    const tile = await sharp(buf).extract({ left: 0, top: 0, width: tileW, height: tileH }).toBuffer();
+    // Always 2×2 — scale each tile to fit within 1024px total
+    const outW = Math.min(tileW * 2, 1024);
+    const outH = Math.min(tileH * 2, 1024);
+    const scaledTileW = Math.round(outW / 2);
+    const scaledTileH = Math.round(outH / 2);
 
-    // How many tiles fit across 1024×1024
-    const cols = Math.ceil(1024 / tileW);
-    const rows = Math.ceil(1024 / tileH);
+    const tile = await sharp(buf)
+      .extract({ left: 0, top: 0, width: tileW, height: tileH })
+      .resize(scaledTileW, scaledTileH, { fit: 'fill' })
+      .toBuffer();
 
-    // Build composite array
     const compositeInputs = [];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        compositeInputs.push({ input: tile, top: r * tileH, left: c * tileW });
+    for (let r = 0; r < 2; r++) {
+      for (let c = 0; c < 2; c++) {
+        compositeInputs.push({ input: tile, top: r * scaledTileH, left: c * scaledTileW });
       }
     }
 
-    const tiled = await sharp({ create: { width: 1024, height: 1024, channels: 3, background: { r: 255, g: 255, b: 255 } } })
+    const tiled = await sharp({ create: { width: outW, height: outH, channels: 3, background: { r: 255, g: 255, b: 255 } } })
       .composite(compositeInputs)
       .jpeg({ quality: 90 })
       .toBuffer();
