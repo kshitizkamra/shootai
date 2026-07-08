@@ -119,7 +119,7 @@ export default function App() {
 
   const renderScreen = () => {
     switch (activeScreen) {
-      case 'workflow':    return <Workflow onNavigate={setActiveScreen} />;
+      case 'workflow':    return <Workflow onNavigate={setActiveScreen} allowedWorkflows={isAdmin ? null : (user?.allowedWorkflows || null)} />;
       case 'models':      return <ModelLibrary isAdmin={isAdmin} />;
       case 'backgrounds': return <BackgroundLibrary isAdmin={isAdmin} />;
       case 'poses':       return <PoseLibrary />;
@@ -128,7 +128,7 @@ export default function App() {
       case 'admin':       return isAdmin ? <AdminPanel /> : null;
       case 'settings':    return isAdmin ? <Settings /> : null;
       case 'credits':     return !isAdmin ? <Credits credits={credits} /> : null;
-      default:            return <Workflow onNavigate={setActiveScreen} />;
+      default:            return <Workflow onNavigate={setActiveScreen} allowedWorkflows={isAdmin ? null : (user?.allowedWorkflows || null)} />;
     }
   };
 

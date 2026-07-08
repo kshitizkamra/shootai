@@ -249,7 +249,9 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   const user = readUsers().find(u => u.id === req.userId);
   if (!user) return res.status(404).json({ error: 'User not found' });
   if (user.disabled) return res.status(403).json({ error: 'Account disabled' });
-  res.json({ id: user.id, email: user.email, name: user.name, role: 'user', credits: user.credits || 0 });
+  const ALL_WORKFLOWS = ['A', 'B', 'D', 'E', 'F'];
+  const allowedWorkflows = user.allowedWorkflows || ALL_WORKFLOWS;
+  res.json({ id: user.id, email: user.email, name: user.name, role: 'user', credits: user.credits || 0, allowedWorkflows });
 });
 
 // ── User routes ────────────────────────────────────────────────────────────
@@ -280,6 +282,8 @@ app.post('/api/admin/apikeys', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+const ALL_WORKFLOWS = ['A', 'B', 'D', 'E', 'F'];
+
 app.get('/api/admin/users', requireAdmin, (req, res) => {
   const users = readUsers().map(u => ({
     id: u.id, email: u.email, name: u.name,
@@ -289,6 +293,7 @@ app.get('/api/admin/users', requireAdmin, (req, res) => {
     totalCreditsAdded: u.totalCreditsAdded || 0,
     disabled: u.disabled || false,
     createdAt: u.createdAt,
+    allowedWorkflows: u.allowedWorkflows || ALL_WORKFLOWS,
   }));
   res.json({ users });
 });
@@ -328,6 +333,18 @@ app.post('/api/admin/users/:id/enable', requireAdmin, (req, res) => {
   users[idx].disabled = false;
   writeUsers(users);
   res.json({ ok: true });
+});
+
+app.put('/api/admin/users/:id/workflows', requireAdmin, (req, res) => {
+  const { allowedWorkflows } = req.body;
+  if (!Array.isArray(allowedWorkflows)) return res.status(400).json({ error: 'allowedWorkflows must be an array' });
+  const valid = allowedWorkflows.filter(w => ALL_WORKFLOWS.includes(w));
+  const users = readUsers();
+  const idx = users.findIndex(u => u.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'User not found' });
+  users[idx].allowedWorkflows = valid;
+  writeUsers(users);
+  res.json({ ok: true, allowedWorkflows: valid });
 });
 
 app.get('/api/admin/stats', requireAdmin, (req, res) => {
@@ -475,6 +492,52 @@ app.put('/api/admin/prompt-templates', requireAdmin, (req, res) => {
     fs.writeFileSync(PROMPT_TEMPLATES_FILE, JSON.stringify(req.body, null, 2));
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Swatch tiling ─────────────────────────────────────────────────────────
+
+app.post('/api/tile-swatch', requireAuth, requireActive, async (req, res) => {
+  // Tiles a swatch image using a given repeat unit (repeatW × repeatH px of the original).
+  // Output: 1024×1024 JPEG tiled image as base64.
+  const { swatchBase64, repeatW, repeatH } = req.body;
+  if (!swatchBase64 || !repeatW || !repeatH)
+    return res.status(400).json({ error: 'swatchBase64, repeatW, and repeatH required' });
+
+  try {
+    const buf = Buffer.from(swatchBase64.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+    const meta = await sharp(buf).metadata();
+    const srcW = meta.width;
+    const srcH = meta.height;
+
+    // Clamp repeat dimensions to image bounds
+    const tileW = Math.max(4, Math.min(Math.round(repeatW), srcW));
+    const tileH = Math.max(4, Math.min(Math.round(repeatH), srcH));
+
+    // Extract the repeat tile from top-left of the swatch
+    const tile = await sharp(buf).extract({ left: 0, top: 0, width: tileW, height: tileH }).toBuffer();
+
+    // How many tiles fit across 1024×1024
+    const cols = Math.ceil(1024 / tileW);
+    const rows = Math.ceil(1024 / tileH);
+
+    // Build composite array
+    const compositeInputs = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        compositeInputs.push({ input: tile, top: r * tileH, left: c * tileW });
+      }
+    }
+
+    const tiled = await sharp({ create: { width: 1024, height: 1024, channels: 3, background: { r: 255, g: 255, b: 255 } } })
+      .composite(compositeInputs)
+      .jpeg({ quality: 90 })
+      .toBuffer();
+
+    res.json({ tiledBase64: 'data:image/jpeg;base64,' + tiled.toString('base64') });
+  } catch (e) {
+    console.error('[tile-swatch] error:', e.message);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── AI routes ──────────────────────────────────────────────────────────────

@@ -1,122 +1,107 @@
-# ShootAI Web — Deployment Guide
+# ShootAI-Web — Deployment Guide
 
-## Architecture
-- **Frontend** (React): Deployed to GoDaddy public_html
-- **Backend** (Node.js/Express): Deployed to Railway (recommended) or GoDaddy Node.js App
+## Current Setup
 
----
-
-## Step 1: Deploy Backend to Railway (Recommended)
-
-Railway is free to start and handles long-running AI requests (30-60s) without timeouts.
-
-1. Go to https://railway.app and sign up (free)
-2. Click **New Project → Deploy from GitHub repo**
-3. Push the `server/` folder to a GitHub repo, OR use Railway CLI:
-   ```
-   npm install -g @railway/cli
-   cd ShootAI-Web/server
-   railway login
-   railway init
-   railway up
-   ```
-4. In Railway dashboard, go to **Variables** and add:
-   - `JWT_SECRET` = any long random string (e.g. `shootai-prod-secret-2024-xyz`)
-   - `PORT` = `3001` (Railway sets this automatically)
-5. Click **Generate Domain** in Railway → you'll get a URL like `https://shootai-server-production.up.railway.app`
-6. Copy this URL — you'll need it in Step 2.
-
-### Alternative: GoDaddy Node.js App
-If you want everything on GoDaddy:
-1. In cPanel, go to **Software → Node.js App**
-2. Create new app:
-   - Node.js version: 18+
-   - Application mode: Production
-   - Application root: `shootai-server`
-   - Application URL: `api.yourdomain.com` (subdomain)
-   - Application startup file: `server.js`
-3. Upload `server/` contents to the `shootai-server` folder via File Manager
-4. In cPanel Node.js App, click **Run NPM Install**
-5. Set environment variables: `JWT_SECRET=your-secret-here`
-6. Click **Restart**
+| Component | Details |
+|-----------|---------|
+| VM | GCE e2-micro, 1 GB RAM, Ubuntu |
+| Process | PM2, process name `shootai` |
+| Web server | nginx → port 3001 |
+| Server path | `~/shootai/server/` |
+| Auto-restart | git push to main triggers PM2 restart |
 
 ---
 
-## Step 2: Build the React Frontend
+## Deploy a Code Change
 
-1. Open `ShootAI-Web/.env.production` (create if not exists):
-   ```
-   REACT_APP_SERVER_URL=https://your-railway-url.railway.app
-   ```
-   Replace with your actual backend URL from Step 1.
+```bash
+# From local Git Bash
+git add .
+git commit -m "your message"
+git push
+# PM2 auto-restarts on the VM — done
+```
 
-2. In terminal:
-   ```bash
-   cd ShootAI-Web
-   npm install
-   npm run build
-   ```
-   This creates a `build/` folder.
-
----
-
-## Step 3: Upload Frontend to GoDaddy
-
-1. Log in to GoDaddy cPanel
-2. Open **File Manager**
-3. Navigate to `public_html/` (or a subdomain folder)
-4. Upload ALL contents of `ShootAI-Web/build/` to `public_html/`
-   - You can zip the build folder and extract it in cPanel
-5. Make sure `index.html` is in the root of `public_html/`
+Check it worked:
+```bash
+ssh kshitiz_kamra@<VM_IP>
+pm2 logs shootai --lines 50
+```
 
 ---
 
-## Step 4: Configure Domain
+## Update Prompt Templates
 
-- Frontend: `www.yourdomain.com` → points to GoDaddy public_html (automatic)
-- Backend: Railway provides its own URL, or use `api.yourdomain.com` if on GoDaddy
+Prompt templates have two files — **both tracked by git**:
+- **Seed**: `server/prompt_templates.seed.json` — source of truth
+- **Runtime**: `server/data/prompt_templates.json` — what the server actually loads
 
-For Railway backend, update your `.env.production` with the Railway URL and rebuild + re-upload the frontend.
+Claude edits both files directly and keeps them in sync. On push, the VM gets the updated runtime file and loads it on restart — **no delete/re-seed step needed**.
 
----
-
-## Step 5: Test
-
-1. Open `https://www.yourdomain.com`
-2. You should see the ShootAI login screen
-3. Click **Create Account** and register
-4. Go to Settings and enter your Gemini/OpenAI API keys
-5. Upload a model and try a generation
+Also update CLAUDE.md if the troubleshooting section mentions deleting the runtime file — that's no longer required.
 
 ---
 
-## Managing Users
+## Useful VM Commands
 
-Users are stored in `server/data/users.json` on Railway/GoDaddy.
-
-To add/remove users manually, SSH into your server and edit this file, or build an admin panel later.
+```bash
+pm2 status                     # check process health
+pm2 logs shootai --lines 200   # tail recent logs
+pm2 restart shootai            # manual restart
+pm2 logs shootai --lines 500 | grep "batch-create-hit"   # audit batch submissions
+pm2 logs shootai --lines 500 | grep "batch-bg"           # audit status checks
+```
 
 ---
 
-## Pricing Estimate
+## Environment Variables
 
-| Service | Cost |
-|---------|------|
-| GoDaddy shared hosting (frontend) | Already have it |
-| Railway backend | Free tier (500 hours/month), then ~$5/month |
-| Gemini API (per customer) | Customer's own API key |
-| OpenAI API (per customer) | Customer's own API key |
+Set in `~/shootai/server/.env` on the VM:
 
-**Total cost to run: ~$0-5/month** (customers pay their own AI API costs)
+```
+JWT_SECRET=...
+GOOGLE_API_KEY=...   # or set via admin panel in the app
+PORT=3001
+```
+
+---
+
+## Architecture Overview
+
+```
+Browser (React SPA)
+    ↓ HTTPS
+nginx (VM)
+    ↓ proxy_pass :3001
+Express/Node.js (PM2 process: shootai)
+    ↓ REST API
+Google Gemini API (File API + Batch API)
+```
+
+### Data storage
+All user data stored as JSON files on the VM:
+- `~/shootai/server/data/users.json` — user accounts
+- `~/shootai/server/data/users/{uid}/` — per-user data (batch jobs, results, etc.)
+- `~/shootai/server/data/prompt_templates.json` — runtime prompt templates
+
+---
+
+## GCE Billing Notes
+
+- Each Gemini batch image generation = 1 GCE billing entry
+- A 5-shot batch should produce exactly 5 GCE entries
+- If you see 10 entries for a 5-shot batch: status check is triggering full inline retrieval (see CLAUDE.md)
+- `checkBatchState` uses `&fields=` URL param to fetch status only — no inline data, no billing
+- Only `downloadBatchImages` should trigger billing (one GET per completed batch)
 
 ---
 
 ## Troubleshooting
 
-**Login doesn't work**: Check that `REACT_APP_SERVER_URL` in `.env.production` points to the correct backend URL. Rebuild and re-upload.
+**PM2 process keeps crashing**: Check `pm2 logs shootai` — likely OOM. The 1 GB VM can spike during image processing. Sequential download (not parallel) is already in place to mitigate.
 
-**Images not generating**: Customer needs to enter their Gemini/OpenAI API keys in Settings.
+**Batch stuck in Pending forever**: Likely server restarted mid-submission before `batch_tempmap` was written. The batch may exist on Gemini but the server lost the mapping. Check Gemini console for recent batch jobs.
 
-**Backend crashes on GoDaddy**: GoDaddy shared hosting may timeout long requests. Switch to Railway.
+**Prompt changes not taking effect**: Runtime template file was not deleted before push. Delete `~/shootai/server/data/prompt_templates.json` on the VM, then re-push.
 
-**CORS errors**: The backend allows all origins by default. If you restrict it, add your domain to the CORS config in `server.js`.
+**Double GCE billing**: REST status check is falling back to SDK (`ai.batches.get()`) which retrieves inline data. Check PM2 logs for `REST check failed` lines. Should show `state=... (REST)` not `using SDK fallback`.

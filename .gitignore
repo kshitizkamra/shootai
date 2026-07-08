@@ -21,5 +21,6 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Data (user data stored on server)
-server/data/
+# Data (user data stored on server — prompt_templates.json is intentionally tracked)
+server/data/users.json
+server/data/users/

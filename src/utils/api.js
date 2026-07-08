@@ -580,6 +580,96 @@ export async function prepareBatchPDPShotE({ modelImageBase64, productImagesBase
   };
 }
 
+// ── Workflow F — Fabric Swap ──────────────────────────────────────────────
+
+function buildShotPromptF(shotType, category, t) {
+  const cat = category || 'full_outfit';
+  const f = t.f_fabric_swap || {};
+  const identity = (t.model_identity || {})[shotType] || (t.model_identity || {})['Front'] || '';
+  const hairLock = (t.global || {}).hair_lock || '';
+  const bgLock = (t.e_shared || {}).bgLock || '';
+  const framingLock = (t.e_shared || {}).framingLock || '';
+  const lighting = (t.e_shared || {}).lighting || '';
+  const shadow = (t.e_shared || {}).shadow || '';
+  const sceneIntegration = (t.e_styled || {}).scene_integration || '';
+  const garmentShapeLock = (t.global || {}).garment_shape_lock || '';
+
+  const fabricTarget = f[`target_${cat}`] || f.target_full_outfit || '';
+
+  if (shotType === 'Styled') {
+    const poseAction = (t.e_styled || {}).pose_action_without_pose || '';
+    return `${f.intro || ''} ${fabricTarget} ${f.swatch_fidelity || ''} ${f.construction_lock || ''} ${identity} ${hairLock} ${poseAction} ${(t.e_styled || {}).framing || ''} ${garmentShapeLock} ${bgLock} ${framingLock} ${lighting} ${shadow} ${sceneIntegration}`.trim();
+  }
+  if (shotType === 'Detail Close-Up') {
+    return `${f.intro || ''} ${fabricTarget} ${f.swatch_fidelity || ''} ${(t.e_detail_closeup || {}).action || ''} ${identity} ${hairLock} ${(t.e_detail_closeup || {}).body || ''} ${bgLock} ${framingLock} ${lighting}`.trim();
+  }
+
+  const catActions = (t.e_category_actions || {})[cat] || (t.e_category_actions || {})['full_outfit'] || {};
+  const action = catActions[shotType] || catActions['Front'] || '';
+  const orientation = (t.garment_orientation || {})[shotType] ? (t.garment_orientation || {})[shotType] + ' ' : '';
+
+  return `${f.intro || ''} ${fabricTarget} ${f.swatch_fidelity || ''} ${f.construction_lock || ''} ${orientation}${identity} ${hairLock} ${action} ${garmentShapeLock} ${bgLock} ${framingLock} ${lighting} ${shadow} ${sceneIntegration}`.trim();
+}
+
+export async function tileSwatch(swatchBase64, repeatW, repeatH) {
+  const token = localStorage.getItem('shootai_token');
+  const res = await fetch(`${SERVER_URL}/api/tile-swatch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: JSON.stringify({ swatchBase64, repeatW, repeatH }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Tiling failed');
+  return data.tiledBase64;
+}
+
+export async function prepareBatchFabricShotF({ modelImageBase64, productImagesBase64, backgroundImageBase64, poseImageBase64, swatchTiledBase64, shotType, productName, category, modelBodyType, globalInstruction, shotInstruction, quality, resolution, label, model: modelOverride, meta, _settings, lightingPresetId }) {
+  const t = await getPromptTemplates();
+  const settings = _settings || await getSettings();
+  const lightingPreset = (t.lighting_presets || []).find(p => p.id === lightingPresetId) || null;
+  const model = modelOverride || settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
+  // No pose used for fabric swap — keep it simple
+  const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
+
+  const productImages = Array.isArray(productImagesBase64) ? productImagesBase64 : [productImagesBase64];
+  // Image order: model, products..., background?, swatch, pose?
+  const images = [modelImageBase64, ...productImages];
+  if (backgroundImageBase64) images.push(backgroundImageBase64);
+  const bgIdx = images.length;
+  images.push(swatchTiledBase64);
+  const swatchIdx = images.length;
+  if (effectivePose) images.push(effectivePose);
+  const poseIdx = effectivePose ? images.length : null;
+
+  const shotPrompt = buildShotPromptF(shotType, category, t);
+
+  const productCount = productImages.length;
+  const productLines = productImages.map((_, i) =>
+    `${i + 2}. Product reference image ${i + 1}${productCount > 1 ? ` (angle ${i + 1})` : ''} — shows the CURRENT garment. Use this for the garment's construction, silhouette, cut, and structural details ONLY. The fabric, print, and pattern of this garment will be REPLACED — do NOT reproduce the original fabric.`
+  ).join('\n');
+  const bgLine = backgroundImageBase64
+    ? `${bgIdx}. Background reference — ENVIRONMENT ONLY. This image contains NO person — use it ONLY for the wall color, floor color, and environment. Do NOT allow this image to influence the model's identity, face, skin tone, hair, or body in any way. Reproduce the EXACT environment: same hue, same saturation, same brightness. This is a FIXED CONSTANT — do NOT recolor, relight, or reinterpret it.`
+    : `Setting: clean professional photography studio`;
+  const swatchLine = `${swatchIdx}. Fabric swatch reference — this is a TILED REPEAT of the new fabric pattern. This is the EXACT fabric that must be applied to the target garment. Reproduce this pattern at a realistic garment scale — do NOT use it as a background or for any part other than the target garment fabric.`;
+  const poseLine = effectivePose
+    ? `${poseIdx}. Pose reference — extract ONLY the body stance, posture, and arm/leg positions from this image. The person and clothing in this image are irrelevant — use only the body pose.`
+    : '';
+
+  const f = t.f_fabric_swap || {};
+  const prompt = `I am uploading ${images.length} reference images:\n1. MODEL reference — this is the ONLY person to appear in the output. Use her exact face, body structure, skin tone, hair, and ${modelBodyType || 'body type'}. Reference image 1 is the SOLE source for the model's identity.\n${productLines}\n${bgLine}\n${swatchLine}${poseLine ? '\n' + poseLine : ''}\n\nGenerate a photorealistic fashion photograph.\n\nCHARACTER: ONLY the woman from reference image 1. ${modelBodyType || 'Hourglass'} body type.\n\n${f.intro || ''}\n${(f[`target_${category}`] || f.target_full_outfit || '')}\n${f.swatch_fidelity || ''}\n${f.construction_lock || ''}\n${(t.global || {}).garment_shape_lock || ''}\n\nFOOTWEAR: ${(t.global || {}).footwear_block || ''}\nSETTING: ${backgroundImageBase64 ? `reproduce the EXACT background from reference image ${bgIdx} — same hue, saturation, brightness. FIXED CONSTANT. ${lightingPreset ? lightingPreset.lighting + ' ' + lightingPreset.shadow + ' ' : ''}Edges between model and background must be photo-realistic.` : 'clean professional white studio — pure white walls and floor. Do NOT be influenced by any background in product or swatch images.'}\n\n${shotPrompt}${shotInstruction ? `\nSPECIAL INSTRUCTION FOR THIS SHOT: ${shotInstruction}` : ''}${globalInstruction ? `\nGLOBAL INSTRUCTION (applies ONLY to styling and mood — does NOT override model identity, fabric, construction, or background): ${globalInstruction}` : ''}\nPremium D2C fashion brand photography quality.\nNo text, no overlays, no watermarks.`;
+
+  return {
+    workflow: 'F',
+    label: label || `Fabric Swap — ${shotType}`,
+    images,
+    prompt,
+    aspectRatio: getGeminiAspectRatio(resolution || '1080x1440'),
+    resolution: resolution || '1080x1440',
+    imageSize: getGeminiImageSize(quality || 'medium', model),
+    meta: meta || null,
+  };
+}
+
 // ── File naming ───────────────────────────────────────────────────────────
 
 export function generateFileName(productName, modelType, shotType) {

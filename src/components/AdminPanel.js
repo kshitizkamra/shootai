@@ -71,6 +71,13 @@ export default function AdminPanel() {
     } catch (e) { alert(e.message); }
   }
 
+  async function handleWorkflowChange(userId, allowedWorkflows) {
+    try {
+      await api('PUT', `/api/admin/users/${userId}/workflows`, { allowedWorkflows });
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, allowedWorkflows } : u));
+    } catch (e) { alert(e.message); }
+  }
+
   async function handleAddCredits() {
     const amount = parseInt(creditAmount, 10);
     if (!amount || amount < 100 || amount % 100 !== 0) {
@@ -122,6 +129,7 @@ export default function AdminPanel() {
             onAddCredits={u => { setCreditModal(u); setCreditAmount(''); }}
             onDisable={handleDisable}
             onEnable={handleEnable}
+            onWorkflowChange={handleWorkflowChange}
           />
         ) : tab === 'apikeys' ? (
           <ApiKeysTab apiKeys={apiKeys} setApiKeys={setApiKeys} onSave={handleSaveKeys} saving={saving} />
@@ -214,12 +222,28 @@ function DashboardTab({ stats }) {
   );
 }
 
-function UsersTab({ users, onAddCredits, onDisable, onEnable }) {
+const WORKFLOW_LABELS = { A: 'Change BG', B: 'Change Model', D: 'Try-On', E: 'PDP Shoot', F: 'Fabric Swap' };
+const ALL_WORKFLOW_IDS = ['A', 'B', 'D', 'E', 'F'];
+
+function UsersTab({ users, onAddCredits, onDisable, onEnable, onWorkflowChange }) {
   const [search, setSearch] = useState('');
+  const [expandedWorkflows, setExpandedWorkflows] = useState({}); // userId → bool
   const filtered = users.filter(u =>
     u.email.toLowerCase().includes(search.toLowerCase()) ||
     u.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  function toggleWorkflowExpand(uid) {
+    setExpandedWorkflows(prev => ({ ...prev, [uid]: !prev[uid] }));
+  }
+
+  function handleWfToggle(user, wfId) {
+    const current = user.allowedWorkflows || ALL_WORKFLOW_IDS;
+    const next = current.includes(wfId)
+      ? current.filter(w => w !== wfId)
+      : [...current, wfId];
+    onWorkflowChange(user.id, next);
+  }
 
   return (
     <div>
@@ -232,47 +256,68 @@ function UsersTab({ users, onAddCredits, onDisable, onEnable }) {
           style={{ maxWidth: 320 }}
         />
       </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-          <thead>
-            <tr style={{ borderBottom: '2px solid var(--gray-200)', textAlign: 'left' }}>
-              {['Name', 'Email', 'Credits', 'Images', 'Credits Used', 'Status', 'Actions'].map(h => (
-                <th key={h} style={{ padding: '8px 12px', fontWeight: 600, color: 'var(--gray-600)', whiteSpace: 'nowrap' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr><td colSpan={7} style={{ padding: 24, textAlign: 'center', color: 'var(--gray-400)' }}>No users found</td></tr>
-            ) : filtered.map(u => (
-              <tr key={u.id} style={{ borderBottom: '1px solid var(--gray-100)', background: u.disabled ? '#fafafa' : '#fff' }}>
-                <td style={{ padding: '10px 12px', fontWeight: 500 }}>{u.name}</td>
-                <td style={{ padding: '10px 12px', color: 'var(--gray-600)' }}>{u.email}</td>
-                <td style={{ padding: '10px 12px' }}>
-                  <span style={{ fontWeight: 600, color: u.credits === 0 ? '#e53e3e' : 'var(--charcoal)' }}>{u.credits}</span>
-                </td>
-                <td style={{ padding: '10px 12px' }}>{u.totalImagesGenerated}</td>
-                <td style={{ padding: '10px 12px' }}>{u.totalCreditsUsed}</td>
-                <td style={{ padding: '10px 12px' }}>
-                  <span style={{
-                    padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
-                    background: u.disabled ? '#fed7d7' : '#c6f6d5',
-                    color: u.disabled ? '#c53030' : '#276749',
-                  }}>{u.disabled ? 'Disabled' : 'Active'}</span>
-                </td>
-                <td style={{ padding: '10px 12px' }}>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button className="btn btn-gold btn-sm" onClick={() => onAddCredits(u)}>+ Credits</button>
-                    {u.disabled
-                      ? <button className="btn btn-outline btn-sm" onClick={() => onEnable(u)}>Enable</button>
-                      : <button className="btn btn-ghost btn-sm" style={{ color: '#e53e3e' }} onClick={() => onDisable(u)}>Disable</button>
-                    }
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div>
+        {filtered.length === 0 ? (
+          <div style={{ padding: 24, textAlign: 'center', color: 'var(--gray-400)' }}>No users found</div>
+        ) : filtered.map(u => {
+          const allowed = u.allowedWorkflows || ALL_WORKFLOW_IDS;
+          const wfExpanded = expandedWorkflows[u.id];
+          const allAllowed = ALL_WORKFLOW_IDS.every(w => allowed.includes(w));
+          return (
+            <div key={u.id} style={{ border: '1px solid var(--gray-200)', borderRadius: 8, marginBottom: 8, background: u.disabled ? '#fafafa' : '#fff' }}>
+              {/* Main user row */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 160px', minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{u.name}</div>
+                  <div style={{ fontSize: 11, color: 'var(--gray-500)' }}>{u.email}</div>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--gray-600)', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontWeight: 600, color: u.credits === 0 ? '#e53e3e' : 'var(--charcoal)' }}>{u.credits}</span> credits
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>{u.totalImagesGenerated} imgs</div>
+                <span style={{
+                  padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600,
+                  background: u.disabled ? '#fed7d7' : '#c6f6d5',
+                  color: u.disabled ? '#c53030' : '#276749',
+                }}>{u.disabled ? 'Disabled' : 'Active'}</span>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button className="btn btn-gold btn-sm" onClick={() => onAddCredits(u)}>+ Credits</button>
+                  {u.disabled
+                    ? <button className="btn btn-outline btn-sm" onClick={() => onEnable(u)}>Enable</button>
+                    : <button className="btn btn-ghost btn-sm" style={{ color: '#e53e3e' }} onClick={() => onDisable(u)}>Disable</button>
+                  }
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => toggleWorkflowExpand(u.id)}
+                    style={{ fontSize: 11, color: allAllowed ? 'var(--gray-500)' : 'var(--gold)' }}
+                  >
+                    Workflows {wfExpanded ? '▴' : '▾'}
+                    {!allAllowed && <span style={{ marginLeft: 4, color: 'var(--gold)' }}>●</span>}
+                  </button>
+                </div>
+              </div>
+
+              {/* Workflow toggles — expandable */}
+              {wfExpanded && (
+                <div style={{ borderTop: '1px solid var(--gray-100)', padding: '10px 14px', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 11, color: 'var(--gray-500)', alignSelf: 'center', marginRight: 4 }}>Workflows:</span>
+                  {ALL_WORKFLOW_IDS.map(wfId => (
+                    <label key={wfId} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', userSelect: 'none' }}>
+                      <input
+                        type="checkbox"
+                        checked={allowed.includes(wfId)}
+                        onChange={() => handleWfToggle(u, wfId)}
+                      />
+                      <span style={{ color: allowed.includes(wfId) ? 'var(--charcoal)' : 'var(--gray-400)' }}>
+                        {WORKFLOW_LABELS[wfId]}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
