@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getModels, getBackgrounds, getPoses, getSettings, saveSettings } from '../utils/storage';
-import { prepareBatchFabricShotF, tileSwatch, getPromptTemplates } from '../utils/api';
+import { prepareBatchFabricShotF, getPromptTemplates } from '../utils/api';
 import { addManyToBatchQueue } from '../utils/batchQueue';
 import GenerationOptions from './GenerationOptions';
 
@@ -22,67 +22,52 @@ const SHOT_TYPES = [
   { id: 'Back',   label: 'Back',           sub: 'Full / Focused Body' },
 ];
 
-// ── Swatch panel (simplified) ────────────────────────────────────────────────
-// User uploads a photo already cropped to exactly one repeat unit,
-// then enters the physical size (cm) and clicks Tile.
+// ── Swatch panel ─────────────────────────────────────────────────────────────
+// User uploads one repeat unit (already cropped), enters physical size in cm.
+// No tiling — raw image goes directly to Gemini with cm hint in the prompt.
 function SwatchPanel({ onSwatchReady }) {
   const [swatchBase64, setSwatchBase64] = useState(null);
   const [swatchName, setSwatchName] = useState('');
   const [naturalW, setNaturalW] = useState(0);
   const [naturalH, setNaturalH] = useState(0);
-
-  // Physical size in cm (for prompt reference)
   const [cmW, setCmW] = useState('');
   const [cmH, setCmH] = useState('');
-
-  const [tiledBase64, setTiledBase64] = useState(null);
-  const [tiling, setTiling] = useState(false);
-  const [tileError, setTileError] = useState('');
 
   async function handleSwatchPick() {
     const paths = await window.electronAPI.openMultipleFilesDialog();
     if (!paths || paths.length === 0) return;
     const b64 = await window.electronAPI.readFileAsBase64(paths[0]);
     const name = paths[0].split(/[\\/]/).pop();
-
     const imgObj = new Image();
     imgObj.onload = () => {
       setNaturalW(imgObj.naturalWidth);
       setNaturalH(imgObj.naturalHeight);
       setSwatchBase64(b64);
       setSwatchName(name);
-      setTiledBase64(null);
-      setTileError('');
-      onSwatchReady(null, imgObj.naturalWidth, imgObj.naturalHeight, cmW, cmH);
+      onSwatchReady(b64, imgObj.naturalWidth, imgObj.naturalHeight, cmW, cmH);
     };
     imgObj.src = b64;
   }
 
-  async function handleTile() {
-    if (!swatchBase64 || naturalW < 4 || naturalH < 4) return;
-    setTiling(true);
-    setTileError('');
-    try {
-      // The full uploaded image IS the repeat unit
-      const tiled = await tileSwatch(swatchBase64, naturalW, naturalH);
-      setTiledBase64(tiled);
-      onSwatchReady(swatchBase64, naturalW, naturalH, cmW, cmH);
-    } catch (e) {
-      setTileError(e.message);
-    }
-    setTiling(false);
+  function handleCmW(val) {
+    setCmW(val);
+    if (swatchBase64) onSwatchReady(swatchBase64, naturalW, naturalH, val, cmH);
+  }
+
+  function handleCmH(val) {
+    setCmH(val);
+    if (swatchBase64) onSwatchReady(swatchBase64, naturalW, naturalH, cmW, val);
   }
 
   return (
     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-      {/* Left: upload + thumbnail */}
       <div style={{ flex: '1 1 200px' }}>
         {!swatchBase64 ? (
           <div className="upload-zone" style={{ padding: 28 }} onClick={handleSwatchPick}>
             <span className="upload-zone-icon" style={{ fontSize: 32 }}>🧵</span>
             <div className="upload-zone-text">Upload repeat pattern</div>
             <div className="upload-zone-text" style={{ fontSize: 11, color: 'var(--gray-500)' }}>
-              Crop your photo to exactly one repeat unit before uploading
+              Crop to exactly one repeat unit before uploading
             </div>
           </div>
         ) : (
@@ -91,11 +76,8 @@ function SwatchPanel({ onSwatchReady }) {
               <span style={{ fontSize: 11, color: 'var(--gray-600)', fontWeight: 500 }}>{swatchName}</span>
               <button className="btn btn-ghost btn-sm" style={{ fontSize: 10 }} onClick={handleSwatchPick}>↩ Change</button>
             </div>
-            <img
-              src={swatchBase64}
-              alt="swatch"
-              style={{ width: '100%', borderRadius: 6, border: '1px solid var(--gray-200)', display: 'block' }}
-            />
+            <img src={swatchBase64} alt="swatch"
+              style={{ width: '100%', borderRadius: 6, border: '1px solid var(--gray-200)', display: 'block' }} />
             <div style={{ fontSize: 10, color: 'var(--gray-500)', marginTop: 4, textAlign: 'center' }}>
               {naturalW} × {naturalH} px
             </div>
@@ -103,51 +85,29 @@ function SwatchPanel({ onSwatchReady }) {
         )}
       </div>
 
-      {/* Right: size inputs + tile button + preview */}
-      <div style={{ flex: '1 1 180px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div>
-          <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--navy)', display: 'block', marginBottom: 6 }}>
-            Actual repeat size
-          </label>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 10, color: 'var(--gray-600)' }}>Width (cm)</label>
-              <input className="form-input" type="number" min={0.1} step={0.1}
-                value={cmW} placeholder="e.g. 8"
-                onChange={e => { setCmW(e.target.value); onSwatchReady(tiledBase64 ? swatchBase64 : null, naturalW, naturalH, e.target.value, cmH); }}
-                style={{ fontSize: 12 }} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 10, color: 'var(--gray-600)' }}>Height (cm)</label>
-              <input className="form-input" type="number" min={0.1} step={0.1}
-                value={cmH} placeholder="e.g. 8"
-                onChange={e => { setCmH(e.target.value); onSwatchReady(tiledBase64 ? swatchBase64 : null, naturalW, naturalH, cmW, e.target.value); }}
-                style={{ fontSize: 12 }} />
-            </div>
+      <div style={{ flex: '1 1 160px' }}>
+        <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--navy)', display: 'block', marginBottom: 8 }}>
+          Actual repeat size
+        </label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: 10, color: 'var(--gray-600)' }}>Width (cm)</label>
+            <input className="form-input" type="number" min={0.1} step={0.1}
+              value={cmW} placeholder="e.g. 8"
+              onChange={e => handleCmW(e.target.value)}
+              style={{ fontSize: 12 }} />
           </div>
-          <button className="btn btn-primary" style={{ width: '100%', fontSize: 12 }}
-            onClick={handleTile} disabled={tiling || !swatchBase64}>
-            {tiling ? <><span className="spinner" /> Tiling…</> : '↺ Generate Tiling Preview'}
-          </button>
-          {tileError && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4 }}>⚠ {tileError}</div>}
+          <div style={{ flex: 1 }}>
+            <label style={{ fontSize: 10, color: 'var(--gray-600)' }}>Height (cm)</label>
+            <input className="form-input" type="number" min={0.1} step={0.1}
+              value={cmH} placeholder="e.g. 8"
+              onChange={e => handleCmH(e.target.value)}
+              style={{ fontSize: 12 }} />
+          </div>
         </div>
-
-        {tiledBase64 && (
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--navy)', marginBottom: 6 }}>Tiling Preview</div>
-            <img src={tiledBase64} alt="tiled preview"
-              style={{ width: '100%', borderRadius: 6, border: '1px solid var(--gray-200)', display: 'block' }} />
-            <div style={{ fontSize: 10, color: 'var(--gray-500)', marginTop: 4, textAlign: 'center' }}>
-              1024×1024 — sent to Gemini
-            </div>
-          </div>
-        )}
-
-        {!tiledBase64 && swatchBase64 && (
-          <div style={{ height: 100, border: '1px dashed var(--gray-300)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>Press ↺ to preview tiling</span>
-          </div>
-        )}
+        <div style={{ fontSize: 10, color: 'var(--gray-500)', marginTop: 8 }}>
+          Tells Gemini the physical scale of the pattern on the garment
+        </div>
       </div>
     </div>
   );
@@ -257,17 +217,6 @@ export default function WorkflowF({ onBack, onNavigate }) {
     try {
       const settings = await getSettings();
 
-      // Tile the swatch server-side now (using stored repeat dims)
-      let tiledBase64;
-      try {
-        tiledBase64 = await tileSwatch(swatchBase64, swatchRepeatW, swatchRepeatH);
-      } catch (e) {
-        setError('Swatch tiling failed: ' + e.message);
-        addingRef.current = false;
-        setAdding(false);
-        return;
-      }
-
       const allItems = await Promise.all(shots.map(shot => {
         const isDetail = shot === 'Detail Close-Up';
         return prepareBatchFabricShotF({
@@ -275,7 +224,9 @@ export default function WorkflowF({ onBack, onNavigate }) {
           productImagesBase64: product.images.map(i => i.base64),
           backgroundImageBase64: selectedBg?.base64 || null,
           poseImageBase64: selectedPose?.base64 || null,
-          swatchTiledBase64: tiledBase64,
+          swatchBase64: swatchBase64,
+          swatchCmW: swatchCmW,
+          swatchCmH: swatchCmH,
           shotType: shot,
           productName: product.name,
           category: product.category || 'full_outfit',
@@ -499,7 +450,7 @@ export default function WorkflowF({ onBack, onNavigate }) {
 
         {!swatchBase64 && (
           <div style={{ marginTop: 8, fontSize: 11, color: 'var(--gray-500)', textAlign: 'center' }}>
-            Upload a swatch and click ↺ Generate Tiling Preview to enable batch
+            Upload a swatch to enable batch
           </div>
         )}
       </div>

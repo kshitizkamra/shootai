@@ -623,7 +623,7 @@ export async function tileSwatch(swatchBase64, repeatW, repeatH) {
   return data.tiledBase64;
 }
 
-export async function prepareBatchFabricShotF({ modelImageBase64, productImagesBase64, backgroundImageBase64, poseImageBase64, swatchTiledBase64, shotType, productName, category, modelBodyType, globalInstruction, shotInstruction, quality, resolution, label, model: modelOverride, meta, _settings, lightingPresetId }) {
+export async function prepareBatchFabricShotF({ modelImageBase64, productImagesBase64, backgroundImageBase64, poseImageBase64, swatchBase64, swatchCmW, swatchCmH, shotType, productName, category, modelBodyType, globalInstruction, shotInstruction, quality, resolution, label, model: modelOverride, meta, _settings, lightingPresetId }) {
   const t = await getPromptTemplates();
   const settings = _settings || await getSettings();
   const lightingPreset = (t.lighting_presets || []).find(p => p.id === lightingPresetId) || null;
@@ -636,7 +636,7 @@ export async function prepareBatchFabricShotF({ modelImageBase64, productImagesB
   const images = [modelImageBase64, ...productImages];
   if (backgroundImageBase64) images.push(backgroundImageBase64);
   const bgIdx = images.length;
-  images.push(swatchTiledBase64);
+  images.push(swatchBase64);
   const swatchIdx = images.length;
   if (effectivePose) images.push(effectivePose);
   const poseIdx = effectivePose ? images.length : null;
@@ -650,7 +650,8 @@ export async function prepareBatchFabricShotF({ modelImageBase64, productImagesB
   const bgLine = backgroundImageBase64
     ? `${bgIdx}. Background reference — ENVIRONMENT ONLY. This image contains NO person — use it ONLY for the wall color, floor color, and environment. Do NOT allow this image to influence the model's identity, face, skin tone, hair, or body in any way. Reproduce the EXACT environment: same hue, same saturation, same brightness. This is a FIXED CONSTANT — do NOT recolor, relight, or reinterpret it.`
     : `Setting: clean professional photography studio`;
-  const swatchLine = `${swatchIdx}. Fabric swatch reference — this is a TILED REPEAT of the new fabric pattern. This is the EXACT fabric that must be applied to the target garment. Reproduce this pattern at a realistic garment scale — do NOT use it as a background or for any part other than the target garment fabric.`;
+  const swatchCmLabel = swatchCmW && swatchCmH ? ` The repeat unit is approximately ${swatchCmW} cm × ${swatchCmH} cm at real garment scale — apply the pattern at this physical size.` : '';
+  const swatchLine = `${swatchIdx}. Fabric swatch reference — this is ONE SINGLE REPEAT UNIT of a continuous seamlessly tiling fabric pattern. This is the EXACT fabric to apply to the target garment.${swatchCmLabel} Tile it seamlessly across the entire garment with no visible seam lines or repeat boundaries. Do NOT use this image as a background or apply it to any part other than the target garment fabric.`;
   const poseLine = effectivePose
     ? `${poseIdx}. Pose reference — extract ONLY the body stance, posture, and arm/leg positions from this image. The person and clothing in this image are irrelevant — use only the body pose.`
     : '';
