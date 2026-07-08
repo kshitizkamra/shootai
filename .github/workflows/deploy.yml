@@ -22,6 +22,7 @@ jobs:
             export PATH=$PATH:/usr/local/bin:/usr/bin
 
             cd ~/shootai
+            git checkout server/data/prompt_templates.json
             git pull origin master
             pm2 stop shootai || true
             npm install
