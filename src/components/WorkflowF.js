@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { getModels, getBackgrounds, getPoses, getSettings, saveSettings } from '../utils/storage';
 import { prepareBatchFabricShotF, tileSwatch, getPromptTemplates } from '../utils/api';
 import { addManyToBatchQueue } from '../utils/batchQueue';
@@ -22,182 +22,68 @@ const SHOT_TYPES = [
   { id: 'Back',   label: 'Back',           sub: 'Full / Focused Body' },
 ];
 
-// ── Swatch tiling canvas ──────────────────────────────────────────────────
+// ── Swatch panel (simplified) ────────────────────────────────────────────────
+// User uploads a photo already cropped to exactly one repeat unit,
+// then enters the physical size (cm) and clicks Tile.
 function SwatchPanel({ onSwatchReady }) {
   const [swatchBase64, setSwatchBase64] = useState(null);
   const [swatchName, setSwatchName] = useState('');
-  const [imgNaturalW, setImgNaturalW] = useState(0);
-  const [imgNaturalH, setImgNaturalH] = useState(0);
+  const [naturalW, setNaturalW] = useState(0);
+  const [naturalH, setNaturalH] = useState(0);
 
-  // Repeat size in natural image pixels
-  const [repeatW, setRepeatW] = useState(0);
-  const [repeatH, setRepeatH] = useState(0);
+  // Physical size in cm (for prompt reference)
+  const [cmW, setCmW] = useState('');
+  const [cmH, setCmH] = useState('');
 
-  // Canvas drag state (display coords)
-  const [dragging, setDragging] = useState(false);
-  const [dragStart, setDragStart] = useState(null);
-  const [rectDisplay, setRectDisplay] = useState(null); // { x, y, w, h } in display px
-
-  // Preview tiling
   const [tiledBase64, setTiledBase64] = useState(null);
   const [tiling, setTiling] = useState(false);
   const [tileError, setTileError] = useState('');
-
-  const canvasRef = useRef(null);
-  const imgRef = useRef(null);
-  const displayScaleRef = useRef({ sx: 1, sy: 1 }); // naturalPx / displayPx
-
-  // Draw rect on canvas
-  const drawRect = useCallback((rect) => {
-    const canvas = canvasRef.current;
-    const img = imgRef.current;
-    if (!canvas || !img) return;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    if (rect) {
-      ctx.strokeStyle = '#c9a84c';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 3]);
-      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
-      ctx.fillStyle = 'rgba(201,168,76,0.12)';
-      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-    }
-  }, []);
 
   async function handleSwatchPick() {
     const paths = await window.electronAPI.openMultipleFilesDialog();
     if (!paths || paths.length === 0) return;
     const b64 = await window.electronAPI.readFileAsBase64(paths[0]);
     const name = paths[0].split(/[\\/]/).pop();
-    setSwatchBase64(b64);
-    setSwatchName(name);
-    setRectDisplay(null);
-    setRepeatW(0);
-    setRepeatH(0);
-    setTiledBase64(null);
-    setTileError('');
-    onSwatchReady(null, 0, 0);
 
-    // Get natural dimensions
-    const img = new Image();
-    img.onload = () => {
-      setImgNaturalW(img.naturalWidth);
-      setImgNaturalH(img.naturalHeight);
-    };
-    img.src = b64;
-  }
-
-  // Once image loaded into canvas, set scale
-  function handleImgLoad(e) {
-    const img = e.target;
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    canvas.width = img.width;
-    canvas.height = img.height;
-    displayScaleRef.current = {
-      sx: imgNaturalW / img.width,
-      sy: imgNaturalH / img.height,
-    };
-    drawRect(rectDisplay);
-  }
-
-  function getCanvasXY(e) {
-    const canvas = canvasRef.current;
-    const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  }
-
-  function onMouseDown(e) {
-    if (!swatchBase64) return;
-    const pt = getCanvasXY(e);
-    setDragging(true);
-    setDragStart(pt);
-    setRectDisplay({ x: pt.x, y: pt.y, w: 0, h: 0 });
-  }
-
-  function onMouseMove(e) {
-    if (!dragging || !dragStart) return;
-    const pt = getCanvasXY(e);
-    const r = {
-      x: Math.min(dragStart.x, pt.x),
-      y: Math.min(dragStart.y, pt.y),
-      w: Math.abs(pt.x - dragStart.x),
-      h: Math.abs(pt.y - dragStart.y),
-    };
-    setRectDisplay(r);
-    drawRect(r);
-  }
-
-  function onMouseUp() {
-    if (!dragging) return;
-    setDragging(false);
-    if (rectDisplay && rectDisplay.w > 4 && rectDisplay.h > 4) {
-      const sc = displayScaleRef.current;
-      const nW = Math.round(rectDisplay.w * sc.sx);
-      const nH = Math.round(rectDisplay.h * sc.sy);
-      setRepeatW(nW);
-      setRepeatH(nH);
-      onSwatchReady(null, 0, 0); // reset tiled until re-tiled
+    const imgObj = new Image();
+    imgObj.onload = () => {
+      setNaturalW(imgObj.naturalWidth);
+      setNaturalH(imgObj.naturalHeight);
+      setSwatchBase64(b64);
+      setSwatchName(name);
       setTiledBase64(null);
-    }
+      setTileError('');
+      onSwatchReady(null, imgObj.naturalWidth, imgObj.naturalHeight, cmW, cmH);
+    };
+    imgObj.src = b64;
   }
 
   async function handleTile() {
-    if (!swatchBase64 || repeatW < 4 || repeatH < 4) return;
+    if (!swatchBase64 || naturalW < 4 || naturalH < 4) return;
     setTiling(true);
     setTileError('');
     try {
-      const tiled = await tileSwatch(swatchBase64, repeatW, repeatH);
+      // The full uploaded image IS the repeat unit
+      const tiled = await tileSwatch(swatchBase64, naturalW, naturalH);
       setTiledBase64(tiled);
-      onSwatchReady(swatchBase64, repeatW, repeatH);
+      onSwatchReady(swatchBase64, naturalW, naturalH, cmW, cmH);
     } catch (e) {
       setTileError(e.message);
     }
     setTiling(false);
   }
 
-  // Keep canvas in sync with rectDisplay changes (e.g., from number inputs)
-  useEffect(() => {
-    if (swatchBase64) drawRect(rectDisplay);
-  }, [rectDisplay, swatchBase64, drawRect]);
-
-  function handleRepeatWInput(val) {
-    const n = Math.max(1, Math.min(parseInt(val) || 1, imgNaturalW));
-    setRepeatW(n);
-    setTiledBase64(null);
-    onSwatchReady(null, 0, 0);
-    // Recalculate display rect from natural coords
-    if (rectDisplay && imgNaturalW > 0) {
-      const sc = displayScaleRef.current;
-      const newW = n / sc.sx;
-      const newRect = { ...rectDisplay, w: newW };
-      setRectDisplay(newRect);
-    }
-  }
-
-  function handleRepeatHInput(val) {
-    const n = Math.max(1, Math.min(parseInt(val) || 1, imgNaturalH));
-    setRepeatH(n);
-    setTiledBase64(null);
-    onSwatchReady(null, 0, 0);
-    if (rectDisplay && imgNaturalH > 0) {
-      const sc = displayScaleRef.current;
-      const newH = n / sc.sy;
-      const newRect = { ...rectDisplay, h: newH };
-      setRectDisplay(newRect);
-    }
-  }
-
   return (
     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-      {/* Left: swatch upload + canvas drag */}
-      <div style={{ flex: '1 1 280px' }}>
+      {/* Left: upload + thumbnail */}
+      <div style={{ flex: '1 1 200px' }}>
         {!swatchBase64 ? (
           <div className="upload-zone" style={{ padding: 28 }} onClick={handleSwatchPick}>
             <span className="upload-zone-icon" style={{ fontSize: 32 }}>🧵</span>
-            <div className="upload-zone-text">Click to upload swatch image</div>
-            <div className="upload-zone-text" style={{ fontSize: 11, color: 'var(--gray-500)' }}>Any fabric / pattern photo</div>
+            <div className="upload-zone-text">Upload repeat pattern</div>
+            <div className="upload-zone-text" style={{ fontSize: 11, color: 'var(--gray-500)' }}>
+              Crop your photo to exactly one repeat unit before uploading
+            </div>
           </div>
         ) : (
           <div>
@@ -205,67 +91,61 @@ function SwatchPanel({ onSwatchReady }) {
               <span style={{ fontSize: 11, color: 'var(--gray-600)', fontWeight: 500 }}>{swatchName}</span>
               <button className="btn btn-ghost btn-sm" style={{ fontSize: 10 }} onClick={handleSwatchPick}>↩ Change</button>
             </div>
-            <div style={{ position: 'relative', cursor: 'crosshair', userSelect: 'none' }}>
-              <img
-                ref={imgRef}
-                src={swatchBase64}
-                alt="swatch"
-                style={{ display: 'none' }}
-                onLoad={handleImgLoad}
-              />
-              <canvas
-                ref={canvasRef}
-                style={{ width: '100%', height: 'auto', borderRadius: 6, border: '1px solid var(--gray-200)', display: 'block' }}
-                onMouseDown={onMouseDown}
-                onMouseMove={onMouseMove}
-                onMouseUp={onMouseUp}
-                onMouseLeave={onMouseUp}
-              />
-            </div>
+            <img
+              src={swatchBase64}
+              alt="swatch"
+              style={{ width: '100%', borderRadius: 6, border: '1px solid var(--gray-200)', display: 'block' }}
+            />
             <div style={{ fontSize: 10, color: 'var(--gray-500)', marginTop: 4, textAlign: 'center' }}>
-              Drag to select one repeat unit
+              {naturalW} × {naturalH} px
             </div>
-            {/* Numeric inputs */}
-            <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: 10, color: 'var(--gray-600)' }}>Repeat W (px)</label>
-                <input className="form-input" type="number" min={1} max={imgNaturalW}
-                  value={repeatW || ''} onChange={e => handleRepeatWInput(e.target.value)}
-                  style={{ fontSize: 12 }} />
-              </div>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: 10, color: 'var(--gray-600)' }}>Repeat H (px)</label>
-                <input className="form-input" type="number" min={1} max={imgNaturalH}
-                  value={repeatH || ''} onChange={e => handleRepeatHInput(e.target.value)}
-                  style={{ fontSize: 12 }} />
-              </div>
-              <div style={{ paddingTop: 16 }}>
-                <button className="btn btn-primary btn-sm" onClick={handleTile}
-                  disabled={tiling || repeatW < 4 || repeatH < 4}>
-                  {tiling ? <span className="spinner" /> : '↺ Tile'}
-                </button>
-              </div>
-            </div>
-            {tileError && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4 }}>⚠ {tileError}</div>}
           </div>
         )}
       </div>
 
-      {/* Right: tiling preview */}
-      <div style={{ flex: '1 1 200px' }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--navy)', marginBottom: 6 }}>Tiling Preview</div>
-        {tiledBase64 ? (
-          <div>
-            <img src={tiledBase64} alt="tiled preview" style={{ width: '100%', borderRadius: 6, border: '1px solid var(--gray-200)', display: 'block' }} />
-            <div style={{ fontSize: 10, color: 'var(--gray-500)', marginTop: 4, textAlign: 'center' }}>
-              1024×1024 tiled — this image goes to Gemini
+      {/* Right: size inputs + tile button + preview */}
+      <div style={{ flex: '1 1 180px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--navy)', display: 'block', marginBottom: 6 }}>
+            Actual repeat size
+          </label>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 10, color: 'var(--gray-600)' }}>Width (cm)</label>
+              <input className="form-input" type="number" min={0.1} step={0.1}
+                value={cmW} placeholder="e.g. 8"
+                onChange={e => { setCmW(e.target.value); onSwatchReady(tiledBase64 ? swatchBase64 : null, naturalW, naturalH, e.target.value, cmH); }}
+                style={{ fontSize: 12 }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 10, color: 'var(--gray-600)' }}>Height (cm)</label>
+              <input className="form-input" type="number" min={0.1} step={0.1}
+                value={cmH} placeholder="e.g. 8"
+                onChange={e => { setCmH(e.target.value); onSwatchReady(tiledBase64 ? swatchBase64 : null, naturalW, naturalH, cmW, e.target.value); }}
+                style={{ fontSize: 12 }} />
             </div>
           </div>
-        ) : (
-          <div style={{ height: 160, border: '1px dashed var(--gray-300)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>
-              {swatchBase64 ? (repeatW >= 4 && repeatH >= 4 ? 'Press ↺ Tile to preview' : 'Select repeat area first') : 'Upload swatch first'}
-            </span>
+          <button className="btn btn-primary" style={{ width: '100%', fontSize: 12 }}
+            onClick={handleTile} disabled={tiling || !swatchBase64}>
+            {tiling ? <><span className="spinner" /> Tiling…</> : '↺ Generate Tiling Preview'}
+          </button>
+          {tileError && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4 }}>⚠ {tileError}</div>}
+        </div>
+
+        {tiledBase64 && (
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--navy)', marginBottom: 6 }}>Tiling Preview</div>
+            <img src={tiledBase64} alt="tiled preview"
+              style={{ width: '100%', borderRadius: 6, border: '1px solid var(--gray-200)', display: 'block' }} />
+            <div style={{ fontSize: 10, color: 'var(--gray-500)', marginTop: 4, textAlign: 'center' }}>
+              1024×1024 — sent to Gemini
+            </div>
+          </div>
+        )}
+
+        {!tiledBase64 && swatchBase64 && (
+          <div style={{ height: 100, border: '1px dashed var(--gray-300)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>Press ↺ to preview tiling</span>
           </div>
         )}
       </div>
@@ -296,6 +176,8 @@ export default function WorkflowF({ onBack, onNavigate }) {
   const [swatchBase64, setSwatchBase64] = useState(null);
   const [swatchRepeatW, setSwatchRepeatW] = useState(0);
   const [swatchRepeatH, setSwatchRepeatH] = useState(0);
+  const [swatchCmW, setSwatchCmW] = useState('');
+  const [swatchCmH, setSwatchCmH] = useState('');
 
   const [adding, setAdding] = useState(false);
   const [batchAdded, setBatchAdded] = useState(0);
@@ -325,10 +207,12 @@ export default function WorkflowF({ onBack, onNavigate }) {
     return () => clearTimeout(t);
   }, [lightingPresetId]);
 
-  function handleSwatchReady(base64, rW, rH) {
+  function handleSwatchReady(base64, rW, rH, cmW, cmH) {
     setSwatchBase64(base64);
     setSwatchRepeatW(rW);
     setSwatchRepeatH(rH);
+    setSwatchCmW(cmW || '');
+    setSwatchCmH(cmH || '');
   }
 
   async function handleProductPick() {
@@ -536,7 +420,8 @@ export default function WorkflowF({ onBack, onNavigate }) {
             <SwatchPanel onSwatchReady={handleSwatchReady} />
             {swatchBase64 && swatchRepeatW >= 4 && swatchRepeatH >= 4 && (
               <div style={{ marginTop: 8, fontSize: 11, color: '#48bb78', fontWeight: 500 }}>
-                ✓ Swatch ready — {swatchRepeatW}×{swatchRepeatH}px repeat
+                ✓ Swatch ready
+                {swatchCmW && swatchCmH ? ` — ${swatchCmW}×${swatchCmH} cm repeat` : ''}
               </div>
             )}
           </div>
@@ -614,12 +499,7 @@ export default function WorkflowF({ onBack, onNavigate }) {
 
         {!swatchBase64 && (
           <div style={{ marginTop: 8, fontSize: 11, color: 'var(--gray-500)', textAlign: 'center' }}>
-            Upload and tile a swatch to enable batch
-          </div>
-        )}
-        {swatchBase64 && (swatchRepeatW < 4 || swatchRepeatH < 4) && (
-          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--gold)', textAlign: 'center' }}>
-            Select a repeat area on the swatch and press ↺ Tile
+            Upload a swatch and click ↺ Generate Tiling Preview to enable batch
           </div>
         )}
       </div>
