@@ -651,7 +651,16 @@ export async function prepareBatchFabricShotF({ modelImageBase64, productImagesB
     ? `${bgIdx}. Background reference — ENVIRONMENT ONLY. This image contains NO person — use it ONLY for the wall color, floor color, and environment. Do NOT allow this image to influence the model's identity, face, skin tone, hair, or body in any way. Reproduce the EXACT environment: same hue, same saturation, same brightness. This is a FIXED CONSTANT — do NOT recolor, relight, or reinterpret it.`
     : `Setting: clean professional photography studio`;
   const cmHint = swatchCmW && swatchCmH ? ` Each repeat unit is ${swatchCmW} cm wide × ${swatchCmH} cm tall.` : '';
-  const swatchLine = `${swatchIdx}. Fabric swatch reference — this image shows a 2×2 arrangement of the repeat unit tiled together.${cmHint} Apply this pattern continuously across the full garment at this physical scale — use the product reference to determine garment dimensions and tile proportionally for the full length. The grid boundaries between the 4 tiles in this reference image are NOT real seams — do NOT reproduce them on the garment. Apply this pattern ONLY to the target garment fabric — do NOT place it on the background, floor, walls, or any non-garment surface.`;
+  // Approximate garment dimensions by category for computing expected repeat counts
+  const garmentEst = {
+    full_outfit: { w: 45, h: 95 }, outerwear: { w: 50, h: 100 },
+    topwear: { w: 45, h: 55 }, bottomwear: { w: 45, h: 90 },
+    innerwear: { w: 40, h: 50 }, footwear: { w: 25, h: 12 },
+  }[category] || { w: 45, h: 95 };
+  const repeatCountHint = (swatchCmW && swatchCmH)
+    ? ` At this repeat size, expect approximately ${(garmentEst.w / parseFloat(swatchCmW)).toFixed(1)} horizontal repeats across the full garment width and ${(garmentEst.h / parseFloat(swatchCmH)).toFixed(1)} vertical repeats from shoulder to hem — render EXACTLY this repeat frequency, not more, not fewer.`
+    : '';
+  const swatchLine = `${swatchIdx}. Fabric swatch reference — this image shows a 2×2 arrangement of the repeat unit tiled together.${cmHint}${repeatCountHint} Apply this pattern continuously across the full garment at this physical scale. The grid boundaries between the 4 tiles in this reference image are NOT real seams — do NOT reproduce them on the garment. Apply this pattern ONLY to the target garment fabric — do NOT place it on the background, floor, walls, or any non-garment surface.`;
   const poseLine = effectivePose
     ? `${poseIdx}. Pose reference — extract ONLY the body stance, posture, and arm/leg positions from this image. The person and clothing in this image are irrelevant — use only the body pose.`
     : '';
