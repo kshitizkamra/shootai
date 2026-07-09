@@ -25,7 +25,7 @@ const SHOT_TYPES = [
 // ── Swatch panel ─────────────────────────────────────────────────────────────
 // User uploads one repeat unit (already cropped), enters physical size in cm.
 // No tiling — raw image goes directly to Gemini with cm hint in the prompt.
-function SwatchPanel({ onSwatchReady }) {
+function SwatchPanel({ onSwatchReady, fabricDesc, onFabricDescChange }) {
   const [swatchBase64, setSwatchBase64] = useState(null);
   const [swatchName, setSwatchName] = useState('');
   const [naturalW, setNaturalW] = useState(0);
@@ -108,6 +108,19 @@ function SwatchPanel({ onSwatchReady }) {
         <div style={{ fontSize: 10, color: 'var(--gray-500)', marginTop: 8 }}>
           Tells Gemini the physical scale of the pattern on the garment
         </div>
+        <div style={{ marginTop: 12 }}>
+          <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--navy)', display: 'block', marginBottom: 4 }}>
+            Fabric type <span style={{ fontWeight: 400, color: 'var(--gray-500)' }}>(optional)</span>
+          </label>
+          <input className="form-input" type="text"
+            value={fabricDesc}
+            placeholder="e.g. 100% cotton poplin, 120 gsm"
+            onChange={e => onFabricDescChange(e.target.value)}
+            style={{ fontSize: 12 }} />
+          <div style={{ fontSize: 10, color: 'var(--gray-500)', marginTop: 4 }}>
+            Helps Gemini render correct drape, texture &amp; fold behaviour
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -138,6 +151,7 @@ export default function WorkflowF({ onBack, onNavigate }) {
   const [swatchRepeatH, setSwatchRepeatH] = useState(0);
   const [swatchCmW, setSwatchCmW] = useState('');
   const [swatchCmH, setSwatchCmH] = useState('');
+  const [fabricDesc, setFabricDesc] = useState('');
 
   const [adding, setAdding] = useState(false);
   const [batchAdded, setBatchAdded] = useState(0);
@@ -238,6 +252,7 @@ export default function WorkflowF({ onBack, onNavigate }) {
           swatchTiledBase64: tiledBase64,
           swatchCmW: swatchCmW,
           swatchCmH: swatchCmH,
+          fabricDesc: fabricDesc || '',
           shotType: shot,
           productName: product.name,
           category: product.category || 'full_outfit',
@@ -379,7 +394,7 @@ export default function WorkflowF({ onBack, onNavigate }) {
         <div className="section-title">5. Fabric Swatch</div>
         <div className="card" style={{ marginBottom: 24 }}>
           <div className="card-body" style={{ padding: 14 }}>
-            <SwatchPanel onSwatchReady={handleSwatchReady} />
+            <SwatchPanel onSwatchReady={handleSwatchReady} fabricDesc={fabricDesc} onFabricDescChange={setFabricDesc} />
             {swatchBase64 && swatchRepeatW >= 4 && swatchRepeatH >= 4 && (
               <div style={{ marginTop: 8, fontSize: 11, color: '#48bb78', fontWeight: 500 }}>
                 ✓ Swatch ready
