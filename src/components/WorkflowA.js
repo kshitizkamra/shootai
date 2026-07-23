@@ -20,6 +20,7 @@ export default function WorkflowA({ onBack, onNavigate }) {
   const [geminiError, setGeminiError] = useState('');
   const skipGeminiRef = useRef(false);
   const [genPhase, setGenPhase] = useState('idle'); // 'idle' | 'preview_done'
+  const [bgType, setBgType] = useState('studio');
 
   useEffect(() => {
     getBackgrounds().then(setBackgrounds);
@@ -65,6 +66,7 @@ export default function WorkflowA({ onBack, onNavigate }) {
           backgroundDescription: bgTab === 'describe' ? customBgDesc : null,
           quality: 'medium', apiSize: res.apiSize, resolution,
           skipGemini: skipGeminiRef.current,
+          bgType,
         });
         setImages(prev => { const u = [...prev]; u[idx] = { ...u[idx], status: 'done', result: generated }; return u; });
       } catch (e) {
@@ -133,6 +135,7 @@ export default function WorkflowA({ onBack, onNavigate }) {
         backgroundDescription: bgTab === 'describe' ? customBgDesc : null,
         quality: 'low', resolution,
         label: `Background — ${img.name}`,
+        bgType,
       });
       await addToBatchQueue(item);
     }
@@ -239,6 +242,14 @@ export default function WorkflowA({ onBack, onNavigate }) {
               <textarea className="form-input" value={customBgDesc} onChange={e => setCustomBgDesc(e.target.value)}
                 placeholder="e.g. Warm golden-hour rooftop terrace in Mumbai" rows={3} style={{ marginBottom: 12 }} />
             )}
+
+            <div style={{ marginBottom: 12 }}>
+              <div className="section-title" style={{ fontSize: 13, marginBottom: 4 }}>Lighting & Shadows</div>
+              <select className="form-input" value={bgType} onChange={e => setBgType(e.target.value)}>
+                <option value="studio">Studio to Studio (Keep original lighting, no new shadows)</option>
+                <option value="others">Others (Adapt lighting & add natural shadows)</option>
+              </select>
+            </div>
 
             <GenerationOptions resolution={resolution} onResolutionChange={setResolution} />
 
