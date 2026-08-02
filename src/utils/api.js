@@ -232,7 +232,7 @@ export async function generatePDPShot({ modelImageBase64, productImagesBase64, b
     shotPrompt += ` CROP AREA: Show ONLY from ${detailNote} — frame the image tightly to this region. Do NOT show the full body. Do NOT show areas outside this crop zone.`;
   }
 
-  const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
+  const effectivePose = shotType === 'Styled Shot' ? poseImageBase64 : null;
 
   const productImages = Array.isArray(productImagesBase64) ? productImagesBase64 : [productImagesBase64];
   const images = [modelImageBase64, ...productImages];
@@ -363,7 +363,7 @@ export async function prepareBatchPDPShot({ modelImageBase64, productImagesBase6
   const t = await getPromptTemplates();
   const settings = await getSettings();
   const model = modelOverride || settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
-  const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
+  const effectivePose = shotType === 'Styled Shot' ? poseImageBase64 : null;
 
   const productImages = Array.isArray(productImagesBase64) ? productImagesBase64 : [productImagesBase64];
   const images = [modelImageBase64, ...productImages];
@@ -474,7 +474,7 @@ async function buildShotPromptE(shotType, category, hasPose = false, t) {
   const shadow = (t.e_shared||{}).shadow || '';
   const sceneIntegration = (t.e_styled||{}).scene_integration || '';
 
-  if (shotType === 'Styled') {
+  if (shotType === 'Styled Shot') {
     const poseAction = hasPose
       ? ((t.e_styled||{}).pose_action_with_pose || '')
       : ((t.e_styled||{}).pose_action_without_pose || '');
@@ -497,7 +497,7 @@ export async function generatePDPShotE({ modelImageBase64, productImagesBase64, 
   const settings = await getSettings();
   const q = quality || settings.defaultQuality || 'high';
   const sz = apiSize || '1024x1536';
-  const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
+  const effectivePose = shotType === 'Styled Shot' ? poseImageBase64 : null;
 
   const productImages = Array.isArray(productImagesBase64) ? productImagesBase64 : [productImagesBase64];
   const images = [modelImageBase64, ...productImages];
@@ -550,7 +550,7 @@ export async function prepareBatchPDPShotE({ modelImageBase64, productImagesBase
   const settings = _settings || await getSettings();
   const lightingPreset = (t.lighting_presets || []).find(p => p.id === lightingPresetId) || null;
   const model = modelOverride || settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
-  const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
+  const effectivePose = shotType === 'Styled Shot' ? poseImageBase64 : null;
 
   const productImages = Array.isArray(productImagesBase64) ? productImagesBase64 : [productImagesBase64];
   const images = [modelImageBase64, ...productImages];
@@ -605,7 +605,7 @@ function buildShotPromptF(shotType, category, t) {
 
   const fabricTarget = f[`target_${cat}`] || f.target_full_outfit || '';
 
-  if (shotType === 'Styled') {
+  if (shotType === 'Styled Shot') {
     const poseAction = (t.e_styled || {}).pose_action_without_pose || '';
     return `${f.intro || ''} ${fabricTarget} ${f.swatch_fidelity || ''} ${f.construction_lock || ''} ${identity} ${hairLock} ${poseAction} ${(t.e_styled || {}).framing || ''} ${garmentShapeLock} ${bgLock} ${framingLock} ${lighting} ${shadow} ${sceneIntegration}`.trim();
   }
@@ -638,7 +638,7 @@ export async function prepareBatchFabricShotF({ modelImageBase64, productImagesB
   const lightingPreset = (t.lighting_presets || []).find(p => p.id === lightingPresetId) || null;
   const model = modelOverride || settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
   // No pose used for fabric swap — keep it simple
-  const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
+  const effectivePose = shotType === 'Styled Shot' ? poseImageBase64 : null;
 
   const productImages = Array.isArray(productImagesBase64) ? productImagesBase64 : [productImagesBase64];
   // Image order: model, products..., background?, swatch, pose?
