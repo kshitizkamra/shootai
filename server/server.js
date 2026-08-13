@@ -585,13 +585,26 @@ app.post('/api/ai/gemini-generate', requireAuth, requireActive, async (req, res)
     const ai = new GoogleGenAI({ apiKey: googleKey });
     const config = { responseModalities: ['IMAGE'] };
     
-    // Some experimental models support imageConfig, but we'll avoid it if it causes issues
-    // The SDK handles endpoint translation internally.
-    const response = await ai.models.generateContent({
-      model: modelId,
-      contents: parts,
-      config
-    });
+    let response;
+    let retries = 3;
+    while (retries > 0) {
+      try {
+        response = await ai.models.generateContent({
+          model: modelId,
+          contents: parts,
+          config
+        });
+        break;
+      } catch (err) {
+        if (err.status === 503 || (err.message && err.message.includes('503'))) {
+          retries--;
+          if (retries === 0) throw err;
+          await new Promise(r => setTimeout(r, 2000)); // wait 2 seconds before retry
+        } else {
+          throw err;
+        }
+      }
+    }
 
     const candidate = response.candidates?.[0];
     if (!candidate) {
