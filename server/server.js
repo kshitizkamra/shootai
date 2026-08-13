@@ -584,7 +584,7 @@ app.post('/api/ai/gemini-generate', requireAuth, requireActive, async (req, res)
       contents: [{ role: 'user', parts }],
       generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
     };
-    if (aspectRatio) body.generationConfig.imageGenerationConfig = { aspectRatio };
+      // if (aspectRatio) body.generationConfig.imageGenerationConfig = { aspectRatio };
 
     const response = await axios.post(url, body, { timeout: 120000, headers: { 'Content-Type': 'application/json' } });
     const candidate = response.data?.candidates?.[0];
