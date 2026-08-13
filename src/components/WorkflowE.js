@@ -655,26 +655,13 @@ export default function WorkflowE({ onBack, onNavigate }) {
       <div className="screen-body">
         {error && <div className="alert alert-error">⚠ {error}</div>}
 
-        {genPhase === 'preview_done' && !generating && (
-          <div style={{ background: 'rgba(72,187,120,0.1)', border: '1px solid #48bb78', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
-            <div style={{ fontWeight: 600, color: 'var(--navy)', marginBottom: 8 }}>
-              ✓ Front shot{validProducts.length !== 1 ? 's' : ''} done! Continue with the remaining {allShots.length - 1} shot{allShots.length - 1 !== 1 ? 's' : ''}?
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-primary btn-sm" onClick={handleContinueGenerating}>
-                ▶ Continue ({(allShots.length - 1) * validProducts.length * 3} credits)
-              </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => setGenPhase('idle')}>No, I'm done</button>
-            </div>
-          </div>
-        )}
 
         {geminiError && (
           <div style={{ background: 'rgba(220,100,0,0.08)', border: '1px solid #e07020', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
             <div style={{ fontWeight: 700, color: '#a04000', marginBottom: 4 }}>🔮 Gemini failed</div>
             <div style={{ fontSize: 12, color: '#a04000', marginBottom: 10 }}>{geminiError}</div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-primary btn-sm" onClick={() => { skipGeminiRef.current = true; setGeminiError(''); handleGeneratePreview(); }}>Use OpenAI instead</button>
+              <button className="btn btn-primary btn-sm" onClick={() => { skipGeminiRef.current = true; setGeminiError(''); handleGenerateAll(); }}>Use OpenAI instead</button>
               <button className="btn btn-ghost btn-sm" onClick={() => setGeminiError('')}>Dismiss</button>
             </div>
           </div>
