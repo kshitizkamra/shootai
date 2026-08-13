@@ -265,8 +265,8 @@ export default function WorkflowE({ onBack, onNavigate }) {
     return true;
   }
 
-  // ── Generate preview (first shot only) ───────────────────────────────────
-  async function handleGeneratePreview() {
+  // ── Generate all shots ───────────────────────────────────
+  async function handleGenerateAll() {
     const vp = products.filter(p => p.images && p.images.length > 0 && p.name);
     if (vp.length === 0) return setError('Please add at least one product with an image and name.');
     if (!selectedModel) return setError('Please select a model.');
@@ -278,18 +278,7 @@ export default function WorkflowE({ onBack, onNavigate }) {
     setStep(2);
     setGenPhase('idle');
     setError('');
-    const ok = await runGenerate([shots[0]]);
-    if (ok && shots.length > 1 && !cancelRef.current) setGenPhase('preview_done');
-  }
-
-  // ── Continue generating remaining shots ───────────────────────────────────
-  async function handleContinueGenerating() {
-    const shots = buildShotList();
-    const remaining = shots.slice(1);
-    if (remaining.length === 0) return;
-    setGenPhase('continuing');
-    await runGenerate(remaining);
-    setGenPhase('idle');
+    await runGenerate(shots);
   }
 
   // ── Add to Batch (all shots) ──────────────────────────────────────────────
@@ -619,25 +608,13 @@ export default function WorkflowE({ onBack, onNavigate }) {
             <button className="btn btn-primary btn-lg" style={{ flex: 1 }} disabled>
               <div><span className="spinner" /> Generating…</div>
             </button>
-          ) : genPhase === 'preview_done' ? (
-            <div style={{ flex: 1, border: '1px solid #48bb78', borderRadius: 10, padding: '10px 14px', background: 'rgba(72,187,120,0.08)' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--navy)', marginBottom: 8 }}>
-                ✓ Front done! Continue with {allShots.length - 1} more shot{allShots.length - 1 !== 1 ? 's' : ''}?
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn btn-primary btn-sm" style={{ flex: 1 }} onClick={handleContinueGenerating}>
-                  ▶ Continue ({(allShots.length - 1) * validProducts.length * 3} credits)
-                </button>
-                <button className="btn btn-ghost btn-sm" onClick={() => setGenPhase('idle')}>Done</button>
-              </div>
-            </div>
           ) : (
-            <button className="btn btn-primary btn-lg" style={{ flex: 1 }} onClick={handleGeneratePreview}
+            <button className="btn btn-primary btn-lg" style={{ flex: 1 }} onClick={handleGenerateAll}
               disabled={validProducts.length === 0 || !selectedModel || !selectedBg}>
               <div>
-                ✨ Preview Front Shot
+                ✨ High Res Images
                 <div style={{ fontSize: 9, fontWeight: 400, opacity: 0.8 }}>
-                  {validProducts.length > 0 ? `${validProducts.length * 3} credits` : '3 credits/image'}
+                  {validProducts.length > 0 ? `${validProducts.length * allShots.length * 3} credits` : '3 credits/image'}
                 </div>
               </div>
             </button>
