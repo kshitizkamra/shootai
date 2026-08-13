@@ -577,14 +577,18 @@ app.post('/api/ai/gemini-generate', requireAuth, requireActive, async (req, res)
     }
     parts.push({ text: prompt });
 
-    // Instant generation uses Gemini 3 Pro Image
-    const modelId = model || 'gemini-3-pro-image';
+    let modelId = model || 'gemini-3.1-flash-image';
+    if (modelId === 'gemini-2.0-flash-preview-image-generation' || modelId === 'gemini-3-pro-image') {
+      modelId = 'gemini-3.1-flash-image';
+    }
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${googleKey}`;
     const body = {
       contents: [{ role: 'user', parts }],
       generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
     };
-      // if (aspectRatio) body.generationConfig.imageGenerationConfig = { aspectRatio };
+    if (aspectRatio) {
+      body.generationConfig.imageConfig = { aspectRatio };
+    }
 
     const response = await axios.post(url, body, { timeout: 120000, headers: { 'Content-Type': 'application/json' } });
     const candidate = response.data?.candidates?.[0];
