@@ -570,10 +570,16 @@ app.post('/api/ai/gemini-generate', requireAuth, requireActive, async (req, res)
   }
 
   try {
+    const ai = new GoogleGenAI({ apiKey: googleKey });
+
     const parts = [];
     for (const img of (images || [])) {
       const data = img.replace(/^data:image\/\w+;base64,/, '');
-      parts.push({ inlineData: { mimeType: img.startsWith('data:image/png') ? 'image/png' : 'image/jpeg', data } });
+      const mimeType = img.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
+      const buffer = Buffer.from(data, 'base64');
+      const blob = new Blob([buffer], { type: mimeType });
+      const uploaded = await ai.files.upload({ file: blob, config: { mimeType, displayName: 'shootai_instant' } });
+      parts.push({ fileData: { fileUri: uploaded.uri, mimeType } });
     }
     parts.push({ text: prompt });
 
@@ -581,9 +587,11 @@ app.post('/api/ai/gemini-generate', requireAuth, requireActive, async (req, res)
     if (modelId === 'gemini-2.0-flash-preview-image-generation' || modelId === 'gemini-3-pro-image') {
       modelId = 'gemini-3.1-flash-image';
     }
-
-    const ai = new GoogleGenAI({ apiKey: googleKey });
-    const config = { responseModalities: ['IMAGE'] };
+    const config = { 
+      responseModalities: ['IMAGE'],
+      candidateCount: 1,
+      imageConfig: { aspectRatio: aspectRatio || '3:4', imageSize: '1K' }
+    };
     
     let response;
     let retries = 3;
