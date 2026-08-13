@@ -581,31 +581,35 @@ app.post('/api/ai/gemini-generate', requireAuth, requireActive, async (req, res)
     if (modelId === 'gemini-2.0-flash-preview-image-generation' || modelId === 'gemini-3-pro-image') {
       modelId = 'gemini-3.1-flash-image';
     }
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${googleKey}`;
-    const body = {
-      contents: [{ role: 'user', parts }],
-      generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
-    };
-    if (aspectRatio) {
-      body.generationConfig.imageConfig = { aspectRatio };
-    }
 
-    const response = await axios.post(url, body, { timeout: 120000, headers: { 'Content-Type': 'application/json' } });
-    const candidate = response.data?.candidates?.[0];
+    const ai = new GoogleGenAI({ apiKey: googleKey });
+    const config = { responseModalities: ['IMAGE'] };
+    
+    // Some experimental models support imageConfig, but we'll avoid it if it causes issues
+    // The SDK handles endpoint translation internally.
+    const response = await ai.models.generateContent({
+      model: modelId,
+      contents: parts,
+      config
+    });
+
+    const candidate = response.candidates?.[0];
     if (!candidate) {
       if (!isAdmin) refundCredits(req.userId, 3, 'no response');
       return res.status(500).json({ error: 'No response from Gemini' });
     }
 
     for (const part of (candidate.content?.parts || [])) {
-      if (part.inlineData?.data) {
+      if (part.inlineData?.data || part.inlineData?.data?.length) {
+        let b64 = part.inlineData.data;
+        if (typeof b64 !== 'string') b64 = Buffer.from(b64).toString('base64');
         const mime = part.inlineData.mimeType || 'image/png';
         if (!isAdmin) {
           addTransaction(req.userId, 'credit_used', 3, '3 credits used (instant generation)');
           recordImages(req.userId, 1);
         }
         appendAuditLog(req.userId, { event: 'realtime_generated', engine: 'gemini', credits: isAdmin ? 0 : 3 });
-        return res.json({ base64: `data:${mime};base64,${part.inlineData.data}` });
+        return res.json({ base64: `data:${mime};base64,${b64}` });
       }
     }
     if (!isAdmin) refundCredits(req.userId, 3, 'no image returned');
