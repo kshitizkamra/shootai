@@ -133,8 +133,8 @@ async function storeSet(key, value) {
 
 // ── AI: Gemini ─────────────────────────────────────────────────────────────
 
-async function geminiGenerate({ model, images, prompt, aspectRatio }) {
-  const data = await apiCall('/api/ai/gemini-generate', { model, images, prompt, aspectRatio });
+async function geminiGenerate({ model, images, prompt, aspectRatio, imageSize }) {
+  const data = await apiCall('/api/ai/gemini-generate', { model, images, prompt, aspectRatio, imageSize });
   return data.base64;
 }
 

@@ -559,7 +559,7 @@ app.post('/api/ai/test-connection', requireAdmin, async (req, res) => {
 // ── Gemini generate (instant — 3 credits) ─────────────────────────────────
 
 app.post('/api/ai/gemini-generate', requireAuth, requireActive, async (req, res) => {
-  const { model, images, prompt, aspectRatio } = req.body;
+  const { model, images, prompt, aspectRatio, imageSize } = req.body;
   const { googleKey } = getGlobalApiKeys();
   if (!googleKey) return res.status(400).json({ error: 'Service not configured. Contact admin.' });
 
@@ -590,7 +590,7 @@ app.post('/api/ai/gemini-generate', requireAuth, requireActive, async (req, res)
     const config = { 
       responseModalities: ['IMAGE'],
       candidateCount: 1,
-      imageConfig: { aspectRatio: aspectRatio || '3:4', imageSize: '1K' }
+      imageConfig: { aspectRatio: aspectRatio || '3:4', imageSize: imageSize || '1K' }
     };
     
     let response;
