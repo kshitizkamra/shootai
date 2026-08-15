@@ -105,6 +105,7 @@ export default function WorkflowD({ onBack, onNavigate }) {
         productName: 'Virtual Try-On',
         shotType: 'TryOn',
         outputPath: filePath,
+        imageData: result,
       });
       setSaved(true);
     } catch (e) {

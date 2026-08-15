@@ -98,7 +98,7 @@ export default function WorkflowB({ onBack, onNavigate }) {
       const filename = `${(productName||'product').replace(/[^a-zA-Z0-9]/g,'_')}_${'Front'.replace(/[^a-zA-Z0-9]/g,'_')}_${Date.now()}.png`;
       await window.electronAPI.saveFile(img.result, filename);
       const filePath = `downloaded/${filename}`;
-      await addHistoryEntry({ workflow: 'B', productName: img.name, modelId: selectedModel?.id, shotType: 'Front', outputPath: filePath });
+      await addHistoryEntry({ workflow: 'B', productName: img.name, modelId: selectedModel?.id, shotType: 'Front', outputPath: filePath, imageData: img.result });
       setImages(prev => { const u = [...prev]; u[idx] = { ...u[idx], saved: true, savedPath: filePath }; return u; });
     } catch (e) { setError('Save failed: ' + e.message); }
   }
