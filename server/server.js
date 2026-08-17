@@ -507,15 +507,37 @@ app.post('/api/tile-swatch', requireAuth, requireActive, async (req, res) => {
     const srcW = meta.width;
     const srcH = meta.height;
 
-    // Clamp repeat dimensions to image bounds
     const tileW = Math.max(4, Math.min(Math.round(repeatW), srcW));
     const tileH = Math.max(4, Math.min(Math.round(repeatH), srcH));
 
-    // Always 2×2 — scale each tile to fit within 1024px total
-    const outW = Math.min(tileW * 2, 1024);
-    const outH = Math.min(tileH * 2, 1024);
-    const scaledTileW = Math.round(outW / 2);
-    const scaledTileH = Math.round(outH / 2);
+    let cols = 2;
+    let rows = 2;
+    if (cmW && cmW > 0) {
+      cols = Math.max(2, Math.round(50 / cmW));
+    }
+    if (cmH && cmH > 0) {
+      rows = Math.max(2, Math.round(100 / cmH));
+    }
+
+    cols = Math.min(cols, 20);
+    rows = Math.min(rows, 20);
+
+    let targetOutW = tileW * cols;
+    let targetOutH = tileH * rows;
+    
+    let scale = 1;
+    if (targetOutW > 1024 || targetOutH > 1024) {
+      scale = Math.min(1024 / targetOutW, 1024 / targetOutH);
+    }
+    
+    const outW = Math.round(targetOutW * scale);
+    const outH = Math.round(targetOutH * scale);
+    
+    const scaledTileW = Math.round(outW / cols);
+    const scaledTileH = Math.round(outH / rows);
+
+    const finalOutW = scaledTileW * cols;
+    const finalOutH = scaledTileH * rows;
 
     const tile = await sharp(buf)
       .extract({ left: 0, top: 0, width: tileW, height: tileH })
@@ -523,13 +545,13 @@ app.post('/api/tile-swatch', requireAuth, requireActive, async (req, res) => {
       .toBuffer();
 
     const compositeInputs = [];
-    for (let r = 0; r < 2; r++) {
-      for (let c = 0; c < 2; c++) {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
         compositeInputs.push({ input: tile, top: r * scaledTileH, left: c * scaledTileW });
       }
     }
 
-    const tiled = await sharp({ create: { width: outW, height: outH, channels: 3, background: { r: 255, g: 255, b: 255 } } })
+    const tiled = await sharp({ create: { width: finalOutW, height: finalOutH, channels: 3, background: { r: 255, g: 255, b: 255 } } })
       .composite(compositeInputs)
       .jpeg({ quality: 90 })
       .toBuffer();
