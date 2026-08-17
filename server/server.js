@@ -497,9 +497,7 @@ app.put('/api/admin/prompt-templates', requireAdmin, (req, res) => {
 // ── Swatch tiling ─────────────────────────────────────────────────────────
 
 app.post('/api/tile-swatch', requireAuth, requireActive, async (req, res) => {
-  // Always produces a clean 2×2 grid of the repeat unit.
-  // Output canvas = tileW*2 × tileH*2, capped at 1024px per side.
-  const { swatchBase64, repeatW, repeatH } = req.body;
+  const { swatchBase64, repeatW, repeatH, cmW, cmH } = req.body;
   if (!swatchBase64 || !repeatW || !repeatH)
     return res.status(400).json({ error: 'swatchBase64, repeatW, and repeatH required' });
 
@@ -630,7 +628,8 @@ app.post('/api/ai/gemini-generate', requireAuth, requireActive, async (req, res)
           recordImages(req.userId, 1);
         }
         appendAuditLog(req.userId, { event: 'realtime_generated', engine: 'gemini', credits: isAdmin ? 0 : 3 });
-        return res.json({ base64: `data:${mime};base64,${b64}` });
+        const finalB64 = b64.startsWith('data:') ? b64 : `data:${mime};base64,${b64}`;
+        return res.json({ base64: finalB64 });
       }
     }
     if (!isAdmin) refundCredits(req.userId, 3, 'no image returned');

@@ -234,7 +234,7 @@ export default function WorkflowF({ onBack, onNavigate }) {
       // Tile 2×2 server-side before batching
       let tiledBase64;
       try {
-        tiledBase64 = await tileSwatch(swatchBase64, swatchRepeatW, swatchRepeatH);
+        tiledBase64 = await tileSwatch(swatchBase64, swatchRepeatW, swatchRepeatH, swatchCmW, swatchCmH);
       } catch (e) {
         setError('Swatch tiling failed: ' + e.message);
         addingRef.current = false;

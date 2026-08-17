@@ -80,7 +80,7 @@ async function getApiKey() {
 
 async function callGemini({ images, prompt, quality, resolution }) {
   const settings = await getSettings();
-  const model = settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
+  const model = settings.geminiModel || 'gemini-3.1-flash-image';
   try {
     return await api.geminiGenerate({
       model,
@@ -318,7 +318,7 @@ No text, no overlays, no watermarks.`;
 
 export async function prepareBatchChangeBackground({ productImageBase64, backgroundImageBase64, backgroundDescription, quality, resolution, label, bgType }) {
   const settings = await getSettings();
-  const model = settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
+  const model = settings.geminiModel || 'gemini-3.1-flash-image';
   const images = backgroundImageBase64
     ? [productImageBase64, backgroundImageBase64]
     : [productImageBase64];
@@ -345,7 +345,7 @@ export async function prepareBatchChangeBackground({ productImageBase64, backgro
 export async function prepareBatchChangeModel({ modelImageBase64, productImageBase64, quality, resolution, label }) {
   const t = await getPromptTemplates();
   const settings = await getSettings();
-  const model = settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
+  const model = settings.geminiModel || 'gemini-3.1-flash-image';
   const images = [modelImageBase64, productImageBase64];
   const prompt = `I am uploading 2 reference images:\n1. Model reference - use this exact woman's face, body structure, skin tone and hair\n2. Product image - reproduce this exact garment on the model in every detail\n\nGenerate a photorealistic studio fashion photograph.\nCHARACTER: exact woman from reference image 1.\n${(t.b_core_prompt||'GARMENT: Reproduce exact garment from reference image 2 — every design detail, color, and construction accurate.')} ${(t.global||{}).garment_shape_lock||''} ${(t.global||{}).print_lock_angle||''}\nSETTING: clean white studio background.\nAction: standing naturally, arms relaxed, looking slightly off camera. Full body head to toe.\nSoft diffused lighting. Premium D2C fashion brand product photography quality.\nNo text, no overlays, no watermarks.`;
   return {
@@ -362,7 +362,7 @@ export async function prepareBatchChangeModel({ modelImageBase64, productImageBa
 export async function prepareBatchPDPShot({ modelImageBase64, productImagesBase64, backgroundImageBase64, poseImageBase64, shotType, productName, modelBodyType, modelDescription, detailNote, globalInstruction, shotInstruction, quality, resolution, label, model: modelOverride }) {
   const t = await getPromptTemplates();
   const settings = await getSettings();
-  const model = modelOverride || settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
+  const model = modelOverride || settings.geminiModel || 'gemini-3.1-flash-image';
   const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
 
   const productImages = Array.isArray(productImagesBase64) ? productImagesBase64 : [productImagesBase64];
@@ -403,7 +403,7 @@ export async function prepareBatchPDPShot({ modelImageBase64, productImagesBase6
 export async function prepareBatchVirtualTryOn({ garmentImageBase64, personImageBase64, quality, resolution, label }) {
   const t = await getPromptTemplates();
   const settings = await getSettings();
-  const model = settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
+  const model = settings.geminiModel || 'gemini-3.1-flash-image';
   const prompt = `I am uploading 2 reference images:\n1. Person/model image - use this exact person, their face, body, skin tone and hair\n2. Garment image - dress this person in exactly this garment, every detail preserved\n\nGenerate a photorealistic photograph of the person wearing the garment naturally.\n${(t.d_core_prompt||'The garment should fit naturally on the person\'s body.')} ${(t.global||{}).garment_shape_lock||''} ${(t.global||{}).print_lock_angle||''}\nKeep the person's face, hair, and non-garment features exactly as in reference image 1.\nNatural indoor or outdoor setting. Soft flattering lighting.\nNo text, no overlays, no watermarks.`;
   return {
     workflow: 'D',
@@ -549,7 +549,7 @@ export async function prepareBatchPDPShotE({ modelImageBase64, productImagesBase
   const t = await getPromptTemplates();
   const settings = _settings || await getSettings();
   const lightingPreset = (t.lighting_presets || []).find(p => p.id === lightingPresetId) || null;
-  const model = modelOverride || settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
+  const model = modelOverride || settings.geminiModel || 'gemini-3.1-flash-image';
   const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
 
   const productImages = Array.isArray(productImagesBase64) ? productImagesBase64 : [productImagesBase64];
@@ -620,12 +620,12 @@ function buildShotPromptF(shotType, category, t) {
   return `${f.intro || ''} ${fabricTarget} ${f.swatch_fidelity || ''} ${f.construction_lock || ''} ${orientation}${identity} ${hairLock} ${action} ${garmentShapeLock} ${bgLock} ${framingLock} ${lighting} ${shadow} ${sceneIntegration}`.trim();
 }
 
-export async function tileSwatch(swatchBase64, repeatW, repeatH) {
+export async function tileSwatch(swatchBase64, repeatW, repeatH, cmW, cmH) {
   const token = localStorage.getItem('shootai_token');
   const res = await fetch(`${SERVER_URL}/api/tile-swatch`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ swatchBase64, repeatW, repeatH }),
+    body: JSON.stringify({ swatchBase64, repeatW, repeatH, cmW, cmH }),
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || 'Tiling failed');
@@ -636,7 +636,7 @@ export async function prepareBatchFabricShotF({ modelImageBase64, productImagesB
   const t = await getPromptTemplates();
   const settings = _settings || await getSettings();
   const lightingPreset = (t.lighting_presets || []).find(p => p.id === lightingPresetId) || null;
-  const model = modelOverride || settings.geminiModel || 'gemini-2.0-flash-preview-image-generation';
+  const model = modelOverride || settings.geminiModel || 'gemini-3.1-flash-image';
   // No pose used for fabric swap — keep it simple
   const effectivePose = shotType === 'Styled' ? poseImageBase64 : null;
 
