@@ -534,7 +534,7 @@ app.post('/api/tile-swatch', requireAuth, requireActive, async (req, res) => {
       .jpeg({ quality: 90 })
       .toBuffer();
 
-    res.json({ tiledBase64: 'data:image/jpeg;base64,' + tiled.toString('base64') });
+    res.json({ tiledBase64: 'data:image/jpeg;base64,' + tiled.toString('base64'), cols, rows });
   } catch (e) {
     console.error('[tile-swatch] error:', e.message);
     res.status(500).json({ error: e.message });

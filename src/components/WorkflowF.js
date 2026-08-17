@@ -234,7 +234,10 @@ export default function WorkflowF({ onBack, onNavigate }) {
       // Tile 2×2 server-side before batching
       let tiledBase64;
       try {
-        tiledBase64 = await tileSwatch(swatchBase64, swatchRepeatW, swatchRepeatH, swatchCmW, swatchCmH);
+        const tileRes = await tileSwatch(swatchBase64, swatchRepeatW, swatchRepeatH, swatchCmW, swatchCmH);
+        tiledBase64 = tileRes.tiledBase64;
+        var cols = tileRes.cols || 2;
+        var rows = tileRes.rows || 2;
       } catch (e) {
         setError('Swatch tiling failed: ' + e.message);
         addingRef.current = false;
@@ -250,6 +253,8 @@ export default function WorkflowF({ onBack, onNavigate }) {
           backgroundImageBase64: selectedBg?.base64 || null,
           poseImageBase64: selectedPose?.base64 || null,
           swatchTiledBase64: tiledBase64,
+            swatchCols: cols,
+            swatchRows: rows,
           swatchCmW: swatchCmW,
           swatchCmH: swatchCmH,
           fabricDesc: fabricDesc || '',
