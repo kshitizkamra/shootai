@@ -19,12 +19,15 @@ function authHeaders() {
   };
 }
 
-async function apiCall(path, body) {
-  const res = await fetch(`${SERVER_URL}${path}`, {
-    method: 'POST',
+async function apiCall(path, body, method = 'POST') {
+  const options = {
+    method,
     headers: authHeaders(),
-    body: JSON.stringify(body),
-  });
+  };
+  if (method !== 'GET' && method !== 'HEAD') {
+    options.body = JSON.stringify(body);
+  }
+  const res = await fetch(`${SERVER_URL}${path}`, options);
   const data = await res.json();
   if (res.status === 402) throw new Error(data.error || 'Not enough credits');
   if (!res.ok) throw new Error(data.error || `Request failed: ${res.status}`);
