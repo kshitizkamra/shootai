@@ -78,6 +78,22 @@ async function getApiKey() {
 // Called internally by workflow functions when googleApiKey is set.
 // Throws on failure — caller catches and can offer OpenAI fallback.
 
+export async function queueGeminiJobs(requests) {
+  try {
+    return await api.geminiQueueJobs(requests);
+  } catch (err) {
+    throw new Error(`[Gemini Queue Error] ${err.message}`);
+  }
+}
+
+export async function pollGeminiJob(groupId) {
+  try {
+    return await api.geminiPollJob(groupId);
+  } catch (err) {
+    throw new Error(`[Gemini Poll Error] ${err.message}`);
+  }
+}
+
 async function callGemini({ images, prompt, quality, resolution }) {
   const settings = await getSettings();
   const model = settings.geminiModel || 'gemini-3.1-flash-image';

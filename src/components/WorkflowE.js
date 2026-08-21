@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getModels, getBackgrounds, getPoses, addHistoryEntry, getSettings, saveSettings } from '../utils/storage';
-import { generatePDPShotE, prepareBatchPDPShotE, getPromptTemplates } from '../utils/api';
+import { generatePDPShotE, prepareBatchPDPShotE, getPromptTemplates, queueGeminiJobs, pollGeminiJob } from '../utils/api';
 import { addManyToBatchQueue } from '../utils/batchQueue';
 import GenerationOptions from './GenerationOptions';
 import { getResolution } from '../utils/constants';
@@ -206,8 +206,97 @@ export default function WorkflowE({ onBack, onNavigate }) {
     const modelBase64 = selectedModel.base64;
     const bgBase64Raw = selectedBg.base64;
     const poseBase64 = selectedPose?.base64 || null;
-    let done = 0;
 
+    // Use fast instant queue if Gemini is enabled
+    if (!skipGeminiRef.current) {
+      const requests = [];
+      const keys = [];
+      const resData = getResolution(resolution);
+      const settings = await getSettings();
+
+      const bgCrops = bgBase64Raw && bgIsPanoramic
+        ? await Promise.all(spreadOffsets(shotsToRun.length).map(off => cropToPotrait(bgBase64Raw, off)))
+        : null;
+
+      for (let pi = 0; pi < validProds.length; pi++) {
+        const product = validProds[pi];
+        const category = product.category || 'full_outfit';
+        for (let si = 0; si < shotsToRun.length; si++) {
+          const shot = shotsToRun[si];
+          const key = `${pi}_${shot}`;
+          keys.push(key);
+          setResults(prev => ({ ...prev, [key]: { status: 'generating', base64: '', error: '' } }));
+
+          const isDetail = shot.startsWith('Detail Close-Up');
+          const shotType = isDetail ? 'Detail Close-Up' : shot;
+          const detailIdx = isDetail && detailNotes.length > 1
+            ? parseInt(shot.replace('Detail Close-Up ', '')) - 1 : 0;
+          const detailNote = isDetail ? (detailNotes[detailIdx] || detailNotes[0] || '') : '';
+          const bgBase64 = bgCrops ? bgCrops[si] : (await getBgBase64ForShot(bgBase64Raw, si, shotsToRun.length));
+
+          const payload = await prepareBatchPDPShotE({
+            modelImageBase64: modelBase64,
+            productImagesBase64: product.images.map(img => img.base64),
+            backgroundImageBase64: bgBase64,
+            poseImageBase64: poseBase64,
+            shotType, productName: product.name, category,
+            modelBodyType: selectedModel.bodyType,
+            modelDescription: '',
+            detailNote, globalInstruction,
+            shotInstruction: shotInstructions[shotType] || '',
+            quality: 'medium', resolution,
+            _settings: settings, lightingPresetId
+          });
+
+          payload.historyMeta = {
+            workflow: 'E',
+            productName: product.name,
+            modelId: selectedModel?.id,
+            backgroundId: selectedBg?.id,
+            shotType
+          };
+          payload.key = key;
+          payload.aspectRatio = resData.aspectRatio;
+          payload.imageSize = resData.apiSize;
+          requests.push(payload);
+        }
+      }
+
+      try {
+        const groupId = await queueGeminiJobs(requests);
+        while (true) {
+          if (cancelRef.current) break; // If user cancels, we just stop polling. Server finishes in background.
+          await new Promise(r => setTimeout(r, 5000));
+          const stat = await pollGeminiJob(groupId);
+          if (!stat || stat.error) break;
+          
+          setProgress({ done: stat.done, total: stat.total });
+          
+          for (const res of stat.results) {
+            if (res.status === 'done' || res.status === 'error') {
+              setResults(prev => {
+                if (prev[res.key]?.status === res.status) return prev;
+                return { ...prev, [res.key]: { status: res.status, base64: res.base64, error: res.error, saved: false } };
+              });
+            }
+          }
+          
+          if (stat.status === 'completed') break;
+        }
+      } catch (e) {
+        setGeminiError(e.message);
+        setGenerating(false);
+        return false;
+      }
+
+      setGenerating(false);
+      setCancelling(false);
+      cancelRef.current = false;
+      return true;
+    }
+
+    // Fallback for OpenAI (skipGemini)
+    let done = 0;
     for (let pi = 0; pi < validProds.length; pi++) {
       const product = validProds[pi];
       const category = product.category || 'full_outfit';
@@ -228,7 +317,7 @@ export default function WorkflowE({ onBack, onNavigate }) {
         const bgBase64 = await getBgBase64ForShot(bgBase64Raw, si, shotsToRun.length);
 
         try {
-          const res = getResolution(resolution);
+          const resData = getResolution(resolution);
           const generated = await generatePDPShotE({
             modelImageBase64: modelBase64,
             productImagesBase64: product.images.map(img => img.base64),
@@ -239,20 +328,12 @@ export default function WorkflowE({ onBack, onNavigate }) {
             modelDescription: '',
             detailNote, globalInstruction,
             shotInstruction: shotInstructions[shotType] || '',
-            quality: 'medium', apiSize: res.apiSize, resolution,
+            quality: 'medium', apiSize: resData.apiSize, resolution,
             skipGemini: skipGeminiRef.current,
             lightingPresetId,
           });
           setResults(prev => ({ ...prev, [key]: { status: 'done', base64: generated, error: '', saved: false } }));
         } catch (e) {
-          const isGeminiFail = !skipGeminiRef.current && e.message &&
-            (e.message.toLowerCase().includes('gemini') || e.message.toLowerCase().includes('google'));
-          if (isGeminiFail) {
-            setGeminiError(e.message);
-            setResults(prev => ({ ...prev, [key]: { status: 'idle', base64: '', error: '' } }));
-            setGenerating(false);
-            return false;
-          }
           setResults(prev => ({ ...prev, [key]: { status: 'error', base64: '', error: e.message, saved: false } }));
         }
         done++;
@@ -264,29 +345,6 @@ export default function WorkflowE({ onBack, onNavigate }) {
     cancelRef.current = false;
     return true;
   }
-
-  // ── Generate all shots ───────────────────────────────────
-  async function handleGenerateAll() {
-    const vp = products.filter(p => p.images && p.images.length > 0 && p.name);
-    if (vp.length === 0) return setError('Please add at least one product with an image and name.');
-    if (!selectedModel) return setError('Please select a model.');
-    if (!selectedBg) return setError('Please select a background.');
-    if (selectedShots.length === 0 && !includeDetail) return setError('Please select at least one shot type.');
-    const shots = buildShotList();
-    if (shots.length === 0) return;
-    
-    const totalCredits = vp.length * shots.length * 3;
-    if (!window.confirm(`Are you sure you want to instantly generate ${vp.length * shots.length} high-res images?\n\nThis will consume ${totalCredits} credits.`)) {
-      return;
-    }
-    
-    setResults({});
-    setStep(2);
-    setGenPhase('idle');
-    setError('');
-    await runGenerate(shots);
-  }
-
   // ── Add to Batch (all shots) ──────────────────────────────────────────────
   async function handleAddToBatch() {
     if (addingRef.current) return;

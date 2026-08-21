@@ -133,6 +133,16 @@ async function storeSet(key, value) {
 
 // ── AI: Gemini ─────────────────────────────────────────────────────────────
 
+async function geminiQueueJobs(requests) {
+  const data = await apiCall('/api/ai/queue-instant-jobs', { requests });
+  return data.groupId;
+}
+
+async function geminiPollJob(groupId) {
+  const data = await apiCall(`/api/ai/instant-job-status/${groupId}`, {}, 'GET');
+  return data;
+}
+
 async function geminiGenerate({ model, images, prompt, aspectRatio, imageSize }) {
   const data = await apiCall('/api/ai/gemini-generate', { model, images, prompt, aspectRatio, imageSize });
   return data.base64;
@@ -183,6 +193,8 @@ const webShim = {
   openInExplorer,
   storeGet,
   storeSet,
+  geminiQueueJobs,
+  geminiPollJob,
   geminiGenerate,
   geminiBatchCreate,
   geminiBatchGet,
