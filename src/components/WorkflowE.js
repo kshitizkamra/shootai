@@ -256,8 +256,6 @@ export default function WorkflowE({ onBack, onNavigate }) {
             shotType
           };
           payload.key = key;
-          payload.aspectRatio = resData.aspectRatio;
-          payload.imageSize = resData.apiSize;
           requests.push(payload);
         }
       }
