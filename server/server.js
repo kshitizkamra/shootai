@@ -1498,8 +1498,8 @@ No text, no overlays, no watermarks.`;
       appendAuditLog('shopify_store', {
         event: 'shopify_vto', 
         detail: 'Generated Virtual Try-On',
-        inputUrl: /api/admin/shopify-img/_in.jpg,
-        outputUrl: /api/admin/shopify-img/_out.jpg,
+        inputUrl: `/api/admin/shopify-img/${jobId}_in.jpg`,
+        outputUrl: `/api/admin/shopify-img/${jobId}_out.jpg`,
         credits: 0
       });
     } catch (logErr) {
