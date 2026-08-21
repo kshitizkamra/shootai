@@ -33,7 +33,7 @@ export default function Settings() {
 
   function scheduleAutoSave(res) {
     clearTimeout(autoSaveTimer.current);
-    autoSaveTimer.current = setTimeout(() => doSave(qual, res), 800);
+    autoSaveTimer.current = setTimeout(() => doSave(res), 800);
   }
 
   
@@ -97,17 +97,7 @@ export default function Settings() {
               <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--navy)' }}>Generation Defaults</span>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Default Quality</label>
-              <select className="form-select" value={quality} onChange={e => handleQualityChange(e.target.value)}>
-                <option value="high">High — best results (~₹18–28 / image)</option>
-                <option value="medium">Medium — balanced (~₹11–16 / image)</option>
-                <option value="low">Low — fast / testing (~₹2–4 / image)</option>
-              </select>
-              <p style={{ fontSize: 12, color: 'var(--gray-500)', marginTop: 4 }}>
-                Can be overridden per-session in each workflow.
-              </p>
-            </div>
+            
 
             <div className="form-group">
               <label className="form-label">Default Output Resolution</label>
