@@ -345,6 +345,28 @@ export default function WorkflowE({ onBack, onNavigate }) {
     cancelRef.current = false;
     return true;
   }
+  // ── Generate all shots ───────────────────────────────────
+  async function handleGenerateAll() {
+    const vp = products.filter(p => p.images && p.images.length > 0 && p.name);
+    if (vp.length === 0) return setError('Please add at least one product with an image and name.');
+    if (!selectedModel) return setError('Please select a model.');
+    if (!selectedBg) return setError('Please select a background.');
+    if (selectedShots.length === 0 && !includeDetail) return setError('Please select at least one shot type.');
+    const shots = buildShotList();
+    if (shots.length === 0) return;
+    
+    const totalCredits = vp.length * shots.length * 3;
+    if (!window.confirm(`Are you sure you want to instantly generate ${vp.length * shots.length} high-res images?\n\nThis will consume ${totalCredits} credits.`)) {
+      return;
+    }
+    
+    setResults({});
+    setStep(2);
+    setGenPhase('idle');
+    setError('');
+    await runGenerate(shots);
+  }
+
   // ── Add to Batch (all shots) ──────────────────────────────────────────────
   async function handleAddToBatch() {
     if (addingRef.current) return;
