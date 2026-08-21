@@ -55,7 +55,7 @@ export default function WorkflowB({ onBack, onNavigate }) {
       setImages(prev => { const u = [...prev]; u[idx] = { ...u[idx], status: 'generating', result: '', saved: false }; return u; });
       try {
         const res = getResolution(resolution);
-        const generated = await changeModel({ productImageBase64: imagesToProcess[i].base64, modelImageBase64: modelBase64, quality: 'medium', apiSize: res.apiSize, resolution, skipGemini: skipGeminiRef.current });
+        const generated = await changeModel({ productImageBase64: imagesToProcess[i].base64, modelImageBase64: modelBase64, apiSize: res.apiSize, resolution, skipGemini: skipGeminiRef.current });
         setImages(prev => { const u = [...prev]; u[idx] = { ...u[idx], status: 'done', result: generated }; return u; });
       } catch (e) {
         const isGeminiFail = !skipGeminiRef.current && e.message && (e.message.toLowerCase().includes('gemini') || e.message.toLowerCase().includes('google'));
@@ -119,7 +119,7 @@ export default function WorkflowB({ onBack, onNavigate }) {
       const item = await prepareBatchChangeModel({
         modelImageBase64: modelBase64,
         productImageBase64: img.base64,
-        quality: 'low', resolution,
+        resolution,
         label: `Change Model — ${img.name}`,
       });
       await addToBatchQueue(item);

@@ -264,7 +264,6 @@ export default function WorkflowF({ onBack, onNavigate }) {
           modelBodyType: selectedModel?.bodyType || 'Hourglass',
           globalInstruction,
           shotInstruction: isDetail && detailNote ? `CROP AREA: Show ONLY from ${detailNote} — frame tightly.` : '',
-          quality: 'low',
           resolution,
           lightingPresetId,
           label: `Fabric Swap — ${product.name} — ${shot}`,

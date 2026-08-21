@@ -56,7 +56,7 @@ export default function WorkflowD({ onBack, onNavigate }) {
     const item = await prepareBatchVirtualTryOn({
       garmentImageBase64: garmentBase64,
       personImageBase64: personBase64,
-      quality: 'low', resolution,
+      resolution,
       label: 'Virtual Try-On',
     });
     await addToBatchQueue(item);
@@ -78,7 +78,6 @@ export default function WorkflowD({ onBack, onNavigate }) {
       const generated = await virtualTryOn({
         garmentImageBase64: garmentBase64,
         personImageBase64: personBase64,
-        quality: 'medium',
         apiSize: res.apiSize,
         resolution,
         skipGemini: skipGeminiRef.current,

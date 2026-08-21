@@ -244,7 +244,7 @@ export default function WorkflowE({ onBack, onNavigate }) {
             modelDescription: '',
             detailNote, globalInstruction,
             shotInstruction: shotInstructions[shotType] || '',
-            quality: 'medium', resolution,
+            resolution,
             _settings: settings, lightingPresetId
           });
 
@@ -326,7 +326,7 @@ export default function WorkflowE({ onBack, onNavigate }) {
             modelDescription: '',
             detailNote, globalInstruction,
             shotInstruction: shotInstructions[shotType] || '',
-            quality: 'medium', apiSize: resData.apiSize, resolution,
+            apiSize: resData.apiSize, resolution,
             skipGemini: skipGeminiRef.current,
             lightingPresetId,
           });
@@ -408,7 +408,7 @@ export default function WorkflowE({ onBack, onNavigate }) {
           modelBodyType: selectedModel?.bodyType || 'Hourglass',
           detailNote, globalInstruction,
           shotInstruction: shotInstructions[shotType] || '',
-          quality: 'low', resolution,
+          resolution,
           lightingPresetId,
           label: `PDP-E — ${product.name} — ${shot}`,
           meta: {

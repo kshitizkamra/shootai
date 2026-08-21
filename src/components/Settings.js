@@ -8,10 +8,9 @@ const GROUPED_PRESETS = RESOLUTION_PRESETS.reduce((acc, r) => {
   acc[g].push(r);
   return acc;
 }, {});
-const GROUP_ORDER = ['Portrait', 'Square', 'Landscape', 'Native', 'Custom'];
+const GROUP_ORDER = ['1K (For Batch)', '2K (For High Res)', 'Custom'];
 
 export default function Settings() {
-  const [quality, setQuality] = useState('high');
   const [resolution, setResolution] = useState('1080x1440');
   const [customW, setCustomW] = useState('1080');
   const [customH, setCustomH] = useState('1440');
@@ -23,8 +22,7 @@ export default function Settings() {
 
   async function loadSettings() {
     const s = await getSettings();
-    setQuality(s.defaultQuality || 'high');
-    const res = s.defaultResolution || '1080x1440';
+    const res = s.defaultResolution || '1080x1440_1K';
     setResolution(res);
     if (res && res.startsWith('custom:')) {
       const [w, h] = res.replace('custom:', '').split('x');
@@ -33,24 +31,20 @@ export default function Settings() {
     }
   }
 
-  function scheduleAutoSave(qual, res) {
+  function scheduleAutoSave(res) {
     clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(() => doSave(qual, res), 800);
   }
 
-  function handleQualityChange(val) {
-    setQuality(val);
-    scheduleAutoSave(val, resolution);
-  }
-
+  
   function handleResolutionChange(val) {
     if (val === 'custom') {
       const encoded = `custom:${customW}x${customH}`;
       setResolution(encoded);
-      scheduleAutoSave(quality, encoded);
+      scheduleAutoSave(encoded);
     } else {
       setResolution(val);
-      scheduleAutoSave(quality, val);
+      scheduleAutoSave(val);
     }
   }
 
@@ -60,12 +54,12 @@ export default function Settings() {
     if (w && h && Number(w) > 0 && Number(h) > 0) {
       const encoded = `custom:${w}x${h}`;
       setResolution(encoded);
-      scheduleAutoSave(quality, encoded);
+      scheduleAutoSave(encoded);
     }
   }
 
-  async function doSave(qual, res) {
-    await saveSettings({ defaultQuality: qual, defaultResolution: res || resolution });
+  async function doSave(res) {
+    await saveSettings({ defaultResolution: res || resolution });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   }
@@ -73,7 +67,7 @@ export default function Settings() {
   async function handleManualSave() {
     clearTimeout(autoSaveTimer.current);
     setSaving(true);
-    await doSave(quality, resolution);
+    await doSave(resolution);
     setSaving(false);
   }
 

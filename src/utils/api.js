@@ -103,7 +103,7 @@ async function callGemini({ images, prompt, quality, resolution }) {
       images,
       prompt,
       aspectRatio: getGeminiAspectRatio(resolution || '1080x1440'),
-      imageSize: getGeminiImageSize(quality || 'high', model),
+      imageSize: getGeminiImageSize(quality, model, resolution),
     });
   } catch (err) {
     // Re-throw with a friendlier message for quota/billing errors
@@ -354,7 +354,7 @@ export async function prepareBatchChangeBackground({ productImageBase64, backgro
     prompt,
     aspectRatio: getGeminiAspectRatio(resolution || '1080x1440'),
     resolution: resolution || '1080x1440',
-    imageSize: getGeminiImageSize(quality || 'medium', model),
+    imageSize: getGeminiImageSize(quality, model, resolution),
   };
 }
 
@@ -371,7 +371,7 @@ export async function prepareBatchChangeModel({ modelImageBase64, productImageBa
     prompt,
     aspectRatio: getGeminiAspectRatio(resolution || '1080x1440'),
     resolution: resolution || '1080x1440',
-    imageSize: getGeminiImageSize(quality || 'medium', model),
+    imageSize: getGeminiImageSize(quality, model, resolution),
   };
 }
 
@@ -412,7 +412,7 @@ export async function prepareBatchPDPShot({ modelImageBase64, productImagesBase6
     prompt,
     aspectRatio: getGeminiAspectRatio(resolution || '1080x1440'),
     resolution: resolution || '1080x1440',
-    imageSize: getGeminiImageSize(quality || 'medium', model),
+    imageSize: getGeminiImageSize(quality, model, resolution),
   };
 }
 
@@ -428,7 +428,7 @@ export async function prepareBatchVirtualTryOn({ garmentImageBase64, personImage
     prompt,
     aspectRatio: getGeminiAspectRatio(resolution || '1080x1440'),
     resolution: resolution || '1080x1440',
-    imageSize: getGeminiImageSize(quality || 'medium', model),
+    imageSize: getGeminiImageSize(quality, model, resolution),
   };
 }
 
@@ -600,7 +600,7 @@ export async function prepareBatchPDPShotE({ modelImageBase64, productImagesBase
     prompt,
     aspectRatio: getGeminiAspectRatio(resolution || '1080x1440'),
     resolution: resolution || '1080x1440',
-    imageSize: getGeminiImageSize(quality || 'medium', model),
+    imageSize: getGeminiImageSize(quality, model, resolution),
     meta: meta || null,
   };
 }
@@ -703,7 +703,7 @@ export async function prepareBatchFabricShotF({
     prompt,
     aspectRatio: getGeminiAspectRatio(resolution || '1080x1440'),
     resolution: resolution || '1080x1440',
-    imageSize: getGeminiImageSize(quality || 'medium', model),
+    imageSize: getGeminiImageSize(quality, model, resolution),
     meta: meta || null,
   };
 }

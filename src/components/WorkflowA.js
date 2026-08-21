@@ -64,7 +64,7 @@ export default function WorkflowA({ onBack, onNavigate }) {
           productImageBase64: imagesToProcess[i].base64,
           backgroundImageBase64: bgBase64,
           backgroundDescription: bgTab === 'describe' ? customBgDesc : null,
-          quality: 'medium', apiSize: res.apiSize, resolution,
+          apiSize: res.apiSize, resolution,
           skipGemini: skipGeminiRef.current,
           bgType,
         });
@@ -133,7 +133,7 @@ export default function WorkflowA({ onBack, onNavigate }) {
         productImageBase64: img.base64,
         backgroundImageBase64: bgBase64,
         backgroundDescription: bgTab === 'describe' ? customBgDesc : null,
-        quality: 'low', resolution,
+        resolution,
         label: `Background — ${img.name}`,
         bgType,
       });
