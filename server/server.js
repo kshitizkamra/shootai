@@ -407,6 +407,10 @@ app.post('/api/admin/restore', requireAdmin, (req, res) => {
 
 // ── Audit log routes (admin only) ─────────────────────────────────────────
 
+app.get('/api/admin/shopify-img/:filename', requireAdmin, (req, res) => {
+  res.sendFile(path.join(DATA_DIR, 'shopify', req.params.filename));
+});
+
 app.get('/api/admin/audit', requireAdmin, (req, res) => {
   const { userId } = req.query;
   if (!userId) {

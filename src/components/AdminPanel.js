@@ -576,7 +576,9 @@ function AuditTab({ users }) {
                   </td>
                   <td style={{ padding: '8px 12px', fontWeight: 500 }}>{e.event}</td>
                   <td style={{ padding: '8px 12px', color: 'var(--gray-600)', maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {e.detail || '\u2014'}
+                    <div>{e.detail || '\u2014'}</div>
+                    {e.inputUrl && <img src={e.inputUrl} alt="input" style={{height: 60, marginRight: 8, marginTop: 8, borderRadius: 4}} />}
+                    {e.outputUrl && <img src={e.outputUrl} alt="output" style={{height: 60, marginTop: 8, borderRadius: 4}} />}
                   </td>
                   <td style={{ padding: '8px 12px', textAlign: 'right' }}>{e.credits ?? '\u2014'}</td>
                 </tr>
