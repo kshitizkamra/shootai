@@ -1459,7 +1459,8 @@ ${productLines}
 Generate a photorealistic fashion photograph.
 
 CHARACTER: ONLY the woman from reference image 1.
-GARMENT: Reproduce the exact garment from the product reference image(s). EVERY design detail (seams, buttons, zippers, fabric texture), color (hue, saturation, brightness), print pattern (motifs, scale, density), and construction MUST be accurate. The garment must fit the model naturally, following the contours of her body. DO NOT simplify, reinterpret, or alter any design element.
+CRITICAL BODY PRESERVATION: You MUST strictly preserve the exact body weight, volume, proportions, and shape of the person in reference image 1. Do NOT make the person thinner or alter their natural body type to fit standard fashion model proportions. Her exact physical dimensions must remain identical.
+GARMENT: Reproduce the exact garment from the product reference image(s). EVERY design detail (seams, buttons, zippers, fabric texture), color (hue, saturation, brightness), print pattern (motifs, scale, density), and construction MUST be accurate. The garment must fit the model naturally, following the contours of her true body shape. DO NOT simplify, reinterpret, or alter any design element.
 POSE & BACKGROUND: Copy the EXACT pose, camera angle, and background from reference image 1. The setting must match pixel-perfectly. The model must cast a physically accurate shadow matching the lighting direction of the background.
 Premium D2C fashion brand product photography quality.
 No text, no overlays, no watermarks.`;
