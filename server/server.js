@@ -1486,6 +1486,26 @@ No text, no overlays, no watermarks.`;
     });
 
     const b64Output = response.candidates[0].content.parts[0].inlineData.data;
+    
+    const jobId = Date.now().toString();
+    const shopifyDir = path.join(DATA_DIR, 'shopify');
+    if (!fs.existsSync(shopifyDir)) fs.mkdirSync(shopifyDir, { recursive: true });
+    
+    try {
+      fs.writeFileSync(path.join(shopifyDir, jobId + '_in.jpg'), customerImageBase64.replace(/^data:image\/\w+;base64,/, ""), 'base64');
+      fs.writeFileSync(path.join(shopifyDir, jobId + '_out.jpg'), b64Output, 'base64');
+      
+      appendAuditLog('shopify_store', {
+        event: 'shopify_vto', 
+        detail: 'Generated Virtual Try-On',
+        inputUrl: /api/admin/shopify-img/_in.jpg,
+        outputUrl: /api/admin/shopify-img/_out.jpg,
+        credits: 0
+      });
+    } catch (logErr) {
+      console.error('[Shopify VTO] Failed to save log', logErr.message);
+    }
+
     res.json({ success: true, image: 'data:image/jpeg;base64,' + b64Output });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Internal Server Error' });
