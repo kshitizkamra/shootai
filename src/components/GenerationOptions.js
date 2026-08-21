@@ -7,7 +7,7 @@ const GROUPED_PRESETS = RESOLUTION_PRESETS.reduce((acc, r) => {
   acc[g].push(r);
   return acc;
 }, {});
-const GROUP_ORDER = ['Portrait', 'Square', 'Landscape', 'Native', 'Custom'];
+const GROUP_ORDER = ['1K (For Batch)', '2K (For High Res)', 'Custom'];
 
 export default function GenerationOptions({ resolution, onResolutionChange }) {
   const isCustom = resolution === 'custom' || (resolution && resolution.startsWith('custom:'));
