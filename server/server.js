@@ -1429,6 +1429,18 @@ app.post('/api/ai/gemini-batch-get', requireAuth, async (req, res) => {
 });
 
 app.post('/api/shopify/vto', async (req, res) => {
+  // SECURITY: Prevent unauthorized websites from stealing your API endpoint
+  const origin = req.headers.origin || req.headers.referer;
+  if (origin) {
+    const isAuthorized = origin.includes('sizyx.com') || 
+                         origin.includes('myshopify.com') || 
+                         origin.includes('shopifypreview.com') || 
+                         origin.includes('localhost');
+    if (!isAuthorized) {
+      return res.status(403).json({ error: 'Unauthorized origin. This endpoint is secured for Sizyx.' });
+    }
+  }
+
   const origin = req.headers.origin || '';
   const { customerImageBase64, productImageUrls } = req.body;
   if (!customerImageBase64) return res.status(400).json({ error: 'Missing customer image' });
