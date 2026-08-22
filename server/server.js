@@ -1441,7 +1441,6 @@ app.post('/api/shopify/vto', async (req, res) => {
     }
   }
 
-  const origin = req.headers.origin || '';
   const { customerImageBase64, productImageUrls } = req.body;
   if (!customerImageBase64) return res.status(400).json({ error: 'Missing customer image' });
   if (!productImageUrls || !productImageUrls.length) return res.status(400).json({ error: 'Missing product images' });
