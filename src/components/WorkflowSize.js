@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 export default function WorkflowSize({ onBack, onNavigate }) {
   const [frontImage, setFrontImage] = useState(null);
@@ -8,38 +8,31 @@ export default function WorkflowSize({ onBack, onNavigate }) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [modelReady, setModelReady] = useState(false);
-  const netRef = useRef(null);
+  const poseRef = useRef(null);
 
   useEffect(() => {
-    const loadBodyPix = async () => {
-      try {
-        // Load tfjs
-        await new Promise((resolve) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js';
-          script.onload = resolve;
-          document.body.appendChild(script);
+    const loadMediaPipe = async () => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/pose/pose.js';
+      script.async = true;
+      script.onload = () => {
+        const pose = new window.Pose({
+          locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`
         });
-        // Load body-pix
-        await new Promise((resolve) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.2.0/dist/body-pix.min.js';
-          script.onload = resolve;
-          document.body.appendChild(script);
+        pose.setOptions({
+          modelComplexity: 1,
+          smoothLandmarks: true,
+          enableSegmentation: true,
+          smoothSegmentation: true,
+          minDetectionConfidence: 0.5,
+          minTrackingConfidence: 0.5
         });
-
-        const net = await window.bodyPix.load({
-          architecture: 'ResNet50',
-          outputStride: 16,
-          quantBytes: 2
-        });
-        netRef.current = net;
+        poseRef.current = pose;
         setModelReady(true);
-      } catch (err) {
-        console.error("Failed to load BodyPix:", err);
-      }
+      };
+      document.body.appendChild(script);
     };
-    loadBodyPix();
+    loadMediaPipe();
   }, []);
 
   const handleImageUpload = (e, setter) => {
@@ -50,27 +43,14 @@ export default function WorkflowSize({ onBack, onNavigate }) {
     reader.readAsDataURL(file);
   };
 
-  const getTorsoWidthAtY = (data, width, targetY) => {
+  const getMaskWidthAtY = (maskCanvas, y) => {
+    const ctx = maskCanvas.getContext('2d');
+    const width = maskCanvas.width;
+    const imgData = ctx.getImageData(0, y, width, 1).data;
     let minX = width, maxX = 0;
-    const yOffset = targetY * width;
     for (let x = 0; x < width; x++) {
-      const partId = data[yOffset + x];
-      // 12=torsoFront, 13=torsoBack
-      if (partId === 12 || partId === 13) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-      }
-    }
-    return maxX > minX ? (maxX - minX) : 0;
-  };
-
-  const getFullWidthAtY = (data, width, targetY) => {
-    let minX = width, maxX = 0;
-    const yOffset = targetY * width;
-    for (let x = 0; x < width; x++) {
-      const partId = data[yOffset + x];
-      // Any person part (-1 is background)
-      if (partId !== -1) {
+      // mask is stored in red channel (or alpha)
+      if (imgData[x * 4 + 3] > 128) {
         if (x < minX) minX = x;
         if (x > maxX) maxX = x;
       }
@@ -89,56 +69,42 @@ export default function WorkflowSize({ onBack, onNavigate }) {
         const ctx = canvas.getContext('2d');
         ctx.drawImage(img, 0, 0);
 
-        const partSegmentation = await netRef.current.segmentPersonParts(canvas, {
-          internalResolution: 'full',
-          segmentationThreshold: 0.7
-        });
-
-        const data = partSegmentation.data;
-        const w = img.width;
-        const h = img.height;
-
-        // Find person bounding box for pixel height
-        let minY = h, maxY = 0;
-        let torsoMinY = h, torsoMaxY = 0;
-        
-        for (let y = 0; y < h; y++) {
-          for (let x = 0; x < w; x++) {
-            const partId = data[y * w + x];
-            if (partId !== -1) {
-              if (y < minY) minY = y;
-              if (y > maxY) maxY = y;
-            }
-            if (partId === 12 || partId === 13) {
-              if (y < torsoMinY) torsoMinY = y;
-              if (y > torsoMaxY) torsoMaxY = y;
-            }
+        poseRef.current.onResults((results) => {
+          if (!results.poseLandmarks || !results.segmentationMask) {
+            resolve(null);
+            return;
           }
-        }
-
-        const pixelHeight = maxY - minY;
-        const torsoHeight = torsoMaxY - torsoMinY;
-
-        // Define measurement lines on the torso
-        const chestY = Math.floor(torsoMinY + torsoHeight * 0.2);
-        const waistY = Math.floor(torsoMinY + torsoHeight * 0.5);
-        const hipY = Math.floor(torsoMinY + torsoHeight * 0.9);
-        const shoulderY = Math.floor(torsoMinY + torsoHeight * 0.05);
-
-        const widths = {
-          shoulder: getTorsoWidthAtY(data, w, shoulderY),
-          chest: getTorsoWidthAtY(data, w, chestY),
-          waist: getTorsoWidthAtY(data, w, waistY),
-          hip: getTorsoWidthAtY(data, w, hipY),
           
-          // Fallback to full width for side profile depths
-          full_shoulder: getFullWidthAtY(data, w, shoulderY),
-          full_chest: getFullWidthAtY(data, w, chestY),
-          full_waist: getFullWidthAtY(data, w, waistY),
-          full_hip: getFullWidthAtY(data, w, hipY),
-        };
+          // Draw mask to a temp canvas to measure pixel widths
+          const maskCanvas = document.createElement('canvas');
+          maskCanvas.width = img.width;
+          maskCanvas.height = img.height;
+          const maskCtx = maskCanvas.getContext('2d');
+          maskCtx.drawImage(results.segmentationMask, 0, 0, img.width, img.height);
 
-        resolve({ pixelHeight, widths });
+          const lm = results.poseLandmarks;
+          
+          // Get pixel height from Nose (0) to Ankle (27/28)
+          const topY = lm[0].y * img.height;
+          const bottomY = Math.max(lm[27].y, lm[28].y) * img.height;
+          const pixelHeight = bottomY - topY;
+
+          // Define key Y positions
+          const shoulderY = ((lm[11].y + lm[12].y) / 2) * img.height;
+          const hipY = ((lm[23].y + lm[24].y) / 2) * img.height;
+          const chestY = shoulderY + (hipY - shoulderY) * 0.2; // 20% down from shoulders
+          const waistY = shoulderY + (hipY - shoulderY) * 0.6; // 60% down from shoulders
+          
+          const widths = {
+            shoulder: getMaskWidthAtY(maskCanvas, Math.floor(shoulderY)),
+            chest: getMaskWidthAtY(maskCanvas, Math.floor(chestY)),
+            waist: getMaskWidthAtY(maskCanvas, Math.floor(waistY)),
+            hip: getMaskWidthAtY(maskCanvas, Math.floor(hipY)),
+          };
+
+          resolve({ pixelHeight, widths });
+        });
+        await poseRef.current.send({image: img});
       };
     });
   };
@@ -164,21 +130,21 @@ export default function WorkflowSize({ onBack, onNavigate }) {
     const cmPerPixel = cm / frontData.pixelHeight;
     const inPerPixel = cmPerPixel / 2.54;
 
-    // Circumference using Ramanujan ellipse formula
-    const calcCirc = (wPx, sideObj, key) => {
+    // Calculate circumference using Ramanujan's ellipse approximation
+    // C ~ pi * (3(a+b) - sqrt((3a+b)(a+3b))) where a=width/2, b=depth/2
+    const calcCirc = (wPx, dPx) => {
       const a = (wPx * inPerPixel) / 2;
-      // If side image exists, use its FULL width (depth) at that point. Otherwise guess depth = width * 0.6
-      const dPx = sideObj ? sideObj.widths['full_' + key] : (wPx * 0.6);
-      const b = (dPx * inPerPixel) / 2;
+      const b = dPx ? (dPx * inPerPixel) / 2 : (wPx * inPerPixel * 0.6) / 2; // Guess depth if missing
       return Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
     };
 
     setResult({
-      chest_bust: calcCirc(frontData.widths.chest, sideData, 'chest').toFixed(1),
-      waist: calcCirc(frontData.widths.waist, sideData, 'waist').toFixed(1),
-      hips: calcCirc(frontData.widths.hip, sideData, 'hip').toFixed(1),
-      shoulders_width: (frontData.widths.shoulder * inPerPixel).toFixed(1) + " in",
-      hps_to_waist: (frontData.widths.waist * inPerPixel * 1.5).toFixed(1) + " in", // basic vertical estimate
+      chest_bust: calcCirc(frontData.widths.chest, sideData?.widths.chest).toFixed(1),
+      waist: calcCirc(frontData.widths.waist, sideData?.widths.waist).toFixed(1),
+      hips: calcCirc(frontData.widths.hip, sideData?.widths.hip).toFixed(1),
+      shoulders: (frontData.widths.shoulder * inPerPixel).toFixed(1) + " (width)",
+      thighs: calcCirc(frontData.widths.hip * 0.5, sideData?.widths.hip * 0.5).toFixed(1),
+      hps_to_waist: ((frontData.widths.waist * inPerPixel) * 1.2).toFixed(1), // Rough estimate
     });
     
     setLoading(false);
@@ -189,8 +155,8 @@ export default function WorkflowSize({ onBack, onNavigate }) {
       <div className="screen-header">
         <div>
           <button className="back-btn" onClick={onBack}>← Back to Workflows</button>
-          <h1>📏 Size Predictor (BodyPix AI)</h1>
-          <p>Uses on-device TensorFlow BodyPix to isolate your torso from your arms for exact measurements.</p>
+          <h1>📏 Size Predictor (Local CV)</h1>
+          <p>Uses on-device computer vision to measure you instantly. No API credits used.</p>
         </div>
       </div>
       
@@ -210,7 +176,7 @@ export default function WorkflowSize({ onBack, onNavigate }) {
                 </div>
               </div>
               <div style={{ flex: 1 }}>
-                <label style={{ display: 'block', marginBottom: 8, fontSize: 13, fontWeight: 500 }}>Side Photo (Crucial for Depth)</label>
+                <label style={{ display: 'block', marginBottom: 8, fontSize: 13, fontWeight: 500 }}>Side Photo (Optional)</label>
                 <div 
                   style={{ border: '2px dashed var(--gray-300)', padding: 20, textAlign: 'center', borderRadius: 8, cursor: 'pointer', background: '#fafafa', position: 'relative', overflow: 'hidden' }}
                   onClick={() => document.getElementById('side-upload').click()}
@@ -235,7 +201,7 @@ export default function WorkflowSize({ onBack, onNavigate }) {
           </div>
           
           <button className="btn btn-primary" onClick={handlePredict} disabled={loading || !frontImage || !heightValue || !modelReady}>
-            {loading ? 'Analyzing Torso Pixels...' : !modelReady ? 'Loading BodyPix AI...' : 'Calculate Measurements'}
+            {loading ? 'Analyzing Body...' : !modelReady ? 'Loading CV Model...' : 'Calculate Measurements'}
           </button>
         </div>
 
