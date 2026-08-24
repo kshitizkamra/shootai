@@ -4,7 +4,7 @@ import { getHistory, deleteHistoryEntry } from '../utils/storage';
 const WORKFLOW_LABELS = {
   A: 'Change Background', B: 'Change Model',
   C: 'Full PDP Shoot', D: 'Virtual Try-On',
-  E: 'PDP Shoot E', Batch: 'Batch',
+  E: 'PDP Shoot E', G: 'Size Predictor', Batch: 'Batch',
 };
 const WORKFLOW_ICONS = {
   A: '🌅', B: '👤', C: '📸', D: '👗', E: '📦', Batch: '📦',

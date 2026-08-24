@@ -4,6 +4,7 @@ import WorkflowB from './WorkflowB';
 import WorkflowD from './WorkflowD';
 import WorkflowE from './WorkflowE';
 import WorkflowF from './WorkflowF';
+import WorkflowSize from './WorkflowSize';
 
 const ALL_WORKFLOWS = [
   {
@@ -41,6 +42,13 @@ const ALL_WORKFLOWS = [
     description: 'Replace the fabric or print on any garment. Upload a swatch, set the repeat, and generate a full PDP shoot with the new fabric.',
     badgeClass: 'badge-c',
   },
+  {
+    id: 'G',
+    icon: '📏',
+    title: 'Size Predictor',
+    description: 'Upload front and side photos with a known height to have AI automatically estimate exact physical body measurements.',
+    badgeClass: 'badge-a',
+  }
 ];
 
 export default function Workflow({ onNavigate, allowedWorkflows }) {
@@ -51,6 +59,7 @@ export default function Workflow({ onNavigate, allowedWorkflows }) {
   if (activeWorkflow === 'D') return <WorkflowD onBack={() => setActiveWorkflow(null)} onNavigate={onNavigate} />;
   if (activeWorkflow === 'E') return <WorkflowE onBack={() => setActiveWorkflow(null)} onNavigate={onNavigate} />;
   if (activeWorkflow === 'F') return <WorkflowF onBack={() => setActiveWorkflow(null)} onNavigate={onNavigate} />;
+  if (activeWorkflow === 'G') return <WorkflowSize onBack={() => setActiveWorkflow(null)} onNavigate={onNavigate} />;
 
   // Filter to only allowed workflows (null/undefined means show all)
   const visible = allowedWorkflows
