@@ -424,7 +424,7 @@ app.get('/api/admin/audit', requireAdmin, (req, res) => {
         const uid = f.replace('.jsonl', '');
         const user = users.find(u => u.id === uid);
         const entries = readAuditLog(uid);
-        const credits = entries.filter(e => e.event === 'batch_submitted' || e.event === 'realtime_generated' || e.event === 'size_predicted')
+        const credits = entries.filter(e => e.event === 'batch_submitted' || e.event === 'realtime_generated')
           .reduce((sum, e) => sum + (e.credits || 0), 0);
         return { userId: uid, email: user?.email || uid, totalEntries: entries.length, totalCreditsUsed: credits, lastActivity: entries[0]?.ts || null };
       });
