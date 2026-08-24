@@ -1,7 +1,7 @@
-﻿import React, { useState } from 'react';
-import { api } from '../utils/api';
+import React, { useState } from 'react';
 import { addHistoryEntry } from '../utils/storage';
 
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || '';
 
 export default function WorkflowSize({ onBack, onNavigate }) {
   const [frontImage, setFrontImage] = useState(null);
@@ -31,11 +31,17 @@ export default function WorkflowSize({ onBack, onNavigate }) {
 
     try {
       const heightStr = heightValue + ' ' + heightUnit;
-      const res = await api('POST', '/api/gemini-size-prediction', {
-        frontImage,
-        sideImage,
-        heightStr
+      const token = localStorage.getItem('shootai_token');
+      const response = await fetch(`${SERVER_URL}/api/gemini-size-prediction`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ frontImage, sideImage, heightStr })
       });
+      const res = await response.json();
+      if (!response.ok) throw new Error(res.error || 'Prediction failed');
       
       setResult(res.measurements);
       
