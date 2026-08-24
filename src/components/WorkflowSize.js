@@ -1,7 +1,7 @@
 ﻿import React, { useState } from 'react';
 import { api } from '../utils/api';
 import { addHistoryEntry } from '../utils/storage';
-import TopNav from './TopNav';
+
 
 export default function WorkflowSize({ onBack, onNavigate }) {
   const [frontImage, setFrontImage] = useState(null);
@@ -63,7 +63,13 @@ export default function WorkflowSize({ onBack, onNavigate }) {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-      <TopNav onBack={onBack} onNavigate={onNavigate} title="Size Predictor" />
+      <div className="screen-header">
+        <div>
+          <button className="back-btn" onClick={onBack}>← Back to Workflows</button>
+          <h1>📏 Size Predictor</h1>
+          <p>Upload front and side photos with height to automatically predict physical measurements.</p>
+        </div>
+      </div>
       
       <div className="screen-body" style={{ display: 'flex', gap: 24, padding: 24 }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 20 }}>
