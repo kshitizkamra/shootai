@@ -1468,13 +1468,13 @@ app.post('/api/shopify/vto', async (req, res) => {
     }
 
     const prompt = `I am uploading ${images.length} reference images:
-1. MODEL reference - this is the ONLY person to appear in the output. Use her exact face, body structure, skin tone, hair, pose, and background environment. Reference image 1 is the SOLE source for the model's identity and setting.
+1. MODEL reference - this is the ONLY person to appear in the output. Use their exact face, body structure, skin tone, hair, pose, and background environment. Reference image 1 is the SOLE source for the model's identity and setting.
 ${productLines}
 
 Generate a photorealistic fashion photograph.
 
-CHARACTER: ONLY the woman from reference image 1.
-CRITICAL BODY PRESERVATION: You MUST strictly preserve the exact body weight, volume, proportions, and shape of the person in reference image 1. Do NOT make the person thinner or alter their natural body type to fit standard fashion model proportions. Her exact physical dimensions must remain identical.
+CHARACTER: ONLY the exact person from reference image 1.
+CRITICAL BODY PRESERVATION: You MUST strictly preserve the exact body weight, volume, proportions, and shape of the person in reference image 1. Do NOT make the person thinner or alter their natural body type to fit standard fashion model proportions. Their exact physical dimensions must remain identical.
 GARMENT: Reproduce the exact garment from the product reference image(s). EVERY design detail (seams, buttons, zippers, fabric texture), color (hue, saturation, brightness), print pattern (motifs, scale, density), and construction MUST be accurate. DO NOT simplify, reinterpret, or alter any design element.
 RELATIVE SIZING & FIT: You must analyze how tight or loose the garment is on the original product model. You must dynamically scale the garment's physical size up or down so that it has the EXACT SAME relative fit, drape, and tightness on the customer's unique body size. If the garment is form-fitting on the product model, it must be equally form-fitting on the customer, regardless of the difference in their body sizes.
 POSE & BACKGROUND: Copy the EXACT pose, camera angle, and background from reference image 1. The setting must match pixel-perfectly. The model must cast a physically accurate shadow matching the lighting direction of the background.
