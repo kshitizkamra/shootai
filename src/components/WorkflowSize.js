@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 
 export default function WorkflowSize({ onBack, onNavigate }) {
   const [frontImage, setFrontImage] = useState(null);
@@ -50,33 +50,42 @@ export default function WorkflowSize({ onBack, onNavigate }) {
     reader.readAsDataURL(file);
   };
 
-  const getTorsoWidthAtY = (data, width, targetY) => {
+  
+  const getTorsoWidthAtY = (data, width, targetY, height) => {
     let minX = width, maxX = 0;
-    const yOffset = targetY * width;
-    for (let x = 0; x < width; x++) {
-      const partId = data[yOffset + x];
-      // 12=torsoFront, 13=torsoBack
-      if (partId === 12 || partId === 13) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
+    // scan a window of +/- 5 pixels
+    for(let dy = -5; dy <= 5; dy++) {
+      const y = targetY + dy;
+      if (y < 0 || y >= height) continue;
+      const yOffset = y * width;
+      for (let x = 0; x < width; x++) {
+        const partId = data[yOffset + x];
+        if (partId === 12 || partId === 13) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+        }
       }
     }
     return maxX > minX ? (maxX - minX) : 0;
   };
 
-  const getFullWidthAtY = (data, width, targetY) => {
+  const getFullWidthAtY = (data, width, targetY, height) => {
     let minX = width, maxX = 0;
-    const yOffset = targetY * width;
-    for (let x = 0; x < width; x++) {
-      const partId = data[yOffset + x];
-      // Any person part (-1 is background)
-      if (partId !== -1) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
+    for(let dy = -5; dy <= 5; dy++) {
+      const y = targetY + dy;
+      if (y < 0 || y >= height) continue;
+      const yOffset = y * width;
+      for (let x = 0; x < width; x++) {
+        const partId = data[yOffset + x];
+        if (partId !== -1) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+        }
       }
     }
     return maxX > minX ? (maxX - minX) : 0;
   };
+
 
   const processImage = async (imgSrc) => {
     return new Promise((resolve) => {
@@ -95,8 +104,8 @@ export default function WorkflowSize({ onBack, onNavigate }) {
         });
 
         const data = partSegmentation.data;
-        const w = img.width;
-        const h = img.height;
+        const w = partSegmentation.width;
+        const h = partSegmentation.height;
 
         // Find person bounding box for pixel height
         let minY = h, maxY = 0;
@@ -116,29 +125,56 @@ export default function WorkflowSize({ onBack, onNavigate }) {
           }
         }
 
+        
         const pixelHeight = maxY - minY;
-        const torsoHeight = torsoMaxY - torsoMinY;
+        if (pixelHeight <= 0) {
+          resolve(null);
+          return;
+        }
+        const torsoHeight = torsoMaxY > torsoMinY ? (torsoMaxY - torsoMinY) : pixelHeight * 0.4; // fallback if torso not found
+        if (torsoMinY === h) torsoMinY = minY + pixelHeight * 0.2; // fallback
+
 
         // Define measurement lines on the torso
-        const chestY = Math.floor(torsoMinY + torsoHeight * 0.2);
-        const waistY = Math.floor(torsoMinY + torsoHeight * 0.5);
-        const hipY = Math.floor(torsoMinY + torsoHeight * 0.9);
-        const shoulderY = Math.floor(torsoMinY + torsoHeight * 0.05);
+        
+        // Use the AI's torso estimation because clothing alters proportions
+        
+        // Ensure Y levels don't go out of bounds
+        const safeY = (y) => Math.min(Math.max(y, 0), h - 1);
+        
+        const shoulderY = safeY(Math.floor(torsoMinY + torsoHeight * 0.10));
+        const chestY = safeY(Math.floor(torsoMinY + torsoHeight * 0.25));
+        const waistY = safeY(Math.floor(torsoMinY + torsoHeight * 0.55));
+        const hipY = safeY(Math.floor(torsoMinY + torsoHeight * 0.90));
+        const thighY = safeY(Math.floor(torsoMinY + torsoHeight * 1.05)); // Just below torso, capped to image height
 
         const widths = {
-          shoulder: getTorsoWidthAtY(data, w, shoulderY),
-          chest: getTorsoWidthAtY(data, w, chestY),
-          waist: getTorsoWidthAtY(data, w, waistY),
-          hip: getTorsoWidthAtY(data, w, hipY),
+          // Front widths
+          shoulder: getFullWidthAtY(data, w, shoulderY, h), 
+          chest: getTorsoWidthAtY(data, w, chestY, h) * 1.25, // Increased multiplier to fix 'too small' waist/chest
+          waist: getTorsoWidthAtY(data, w, waistY, h) * 1.30,
+          hip: getTorsoWidthAtY(data, w, hipY, h) * 1.15,
+          thigh: getFullWidthAtY(data, w, thighY, h) * 0.5, 
           
-          // Fallback to full width for side profile depths
-          full_shoulder: getFullWidthAtY(data, w, shoulderY),
-          full_chest: getFullWidthAtY(data, w, chestY),
-          full_waist: getFullWidthAtY(data, w, waistY),
-          full_hip: getFullWidthAtY(data, w, hipY),
+          // Side depths - MUST USE TORSO ONLY so elbows don't cause massive numbers
+          full_shoulder: getTorsoWidthAtY(data, w, shoulderY, h) * 1.2,
+          full_chest: getTorsoWidthAtY(data, w, chestY, h) * 1.25,
+          full_waist: getTorsoWidthAtY(data, w, waistY, h) * 1.30,
+          full_hip: getTorsoWidthAtY(data, w, hipY, h) * 1.15,
+          full_thigh: getTorsoWidthAtY(data, w, thighY, h) * 0.8,
+        };
+        
+        const vertical = {
+           hpsToBust: chestY - torsoMinY,
+           hpsToWaist: waistY - torsoMinY,
+           hpsToHips: hipY - torsoMinY,
+           hpsToThighs: thighY - torsoMinY
         };
 
-        resolve({ pixelHeight, widths });
+        resolve({ pixelHeight, widths, vertical });
+
+
+
       };
     });
   };
@@ -173,13 +209,19 @@ export default function WorkflowSize({ onBack, onNavigate }) {
       return Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
     };
 
+    
     setResult({
       chest_bust: calcCirc(frontData.widths.chest, sideData, 'chest').toFixed(1),
       waist: calcCirc(frontData.widths.waist, sideData, 'waist').toFixed(1),
       hips: calcCirc(frontData.widths.hip, sideData, 'hip').toFixed(1),
+      thighs: calcCirc(frontData.widths.thigh, sideData, 'thigh').toFixed(1),
       shoulders_width: (frontData.widths.shoulder * inPerPixel).toFixed(1) + " in",
-      hps_to_waist: (frontData.widths.waist * inPerPixel * 1.5).toFixed(1) + " in", // basic vertical estimate
+      hps_to_bust: (frontData.vertical.hpsToBust * inPerPixel).toFixed(1) + " in",
+      hps_to_waist: (frontData.vertical.hpsToWaist * inPerPixel).toFixed(1) + " in",
+      hps_to_hips: (frontData.vertical.hpsToHips * inPerPixel).toFixed(1) + " in",
+      hps_to_thighs: (frontData.vertical.hpsToThighs * inPerPixel).toFixed(1) + " in",
     });
+
     
     setLoading(false);
   };
