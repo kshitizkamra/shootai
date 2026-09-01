@@ -94,7 +94,7 @@ export async function pollGeminiJob(groupId) {
   }
 }
 
-async function callGemini({ images, prompt, quality, resolution }) {
+async function callGemini({ images, prompt, quality, resolution, useVertex }) {
   const settings = await getSettings();
   const model = settings.geminiModel || 'gemini-3.1-flash-image';
   try {
@@ -104,6 +104,7 @@ async function callGemini({ images, prompt, quality, resolution }) {
       prompt,
       aspectRatio: getGeminiAspectRatio(resolution || '1080x1440'),
       imageSize: getGeminiImageSize(quality, model, resolution),
+      useVertex
     });
   } catch (err) {
     // Re-throw with a friendlier message for quota/billing errors
@@ -216,11 +217,26 @@ export async function changeModel({ productImageBase64, modelImageBase64, qualit
   const q = quality || settings.defaultQuality || 'high';
   const sz = apiSize || '1024x1536';
 
+  const vtoPrompt = `I am uploading 2 reference images:
+1. MODEL reference - this is the ONLY person to appear in the output. Use their exact face, body structure, skin tone, hair, pose, and background environment. Reference image 1 is the SOLE source for the model's identity and setting.
+Product reference image 2: use this for garment details.
+
+Generate a photorealistic fashion photograph.
+
+CHARACTER: ONLY the exact person from reference image 1.
+CRITICAL BODY PRESERVATION: You MUST strictly preserve the exact body weight, volume, proportions, and shape of the person in reference image 1. Do NOT make the person thinner or alter their natural body type to fit standard fashion model proportions. Their exact physical dimensions must remain identical.
+GARMENT: Reproduce the exact garment from the product reference image(s). EVERY design detail (seams, buttons, zippers, fabric texture), color (hue, saturation, brightness), print pattern (motifs, scale, density), and construction MUST be accurate. DO NOT simplify, reinterpret, or alter any design element.
+RELATIVE SIZING & FIT: You must analyze how tight or loose the garment is on the original product model. You must dynamically scale the garment's physical size up or down so that it has the EXACT SAME relative fit, drape, and tightness on the customer's unique body size. If the garment is form-fitting on the product model, it must be equally form-fitting on the customer, regardless of the difference in their body sizes.
+POSE & BACKGROUND: Copy the EXACT pose, camera angle, and background from reference image 1. The setting must match pixel-perfectly. The model must cast a physically accurate shadow matching the lighting direction of the background.
+Premium D2C fashion brand product photography quality.
+No text, no overlays, no watermarks.`;
+
   if (!skipGemini) {
     return await callGemini({
       images: [modelImageBase64, productImageBase64],
-      prompt: `I am uploading 2 reference images:\n1. Model reference - use this exact woman's face, body structure, skin tone and hair\n2. Product image - reproduce this exact garment on the model in every detail\n\nGenerate a photorealistic studio fashion photograph.\nCHARACTER: exact woman from reference image 1.\n${(t.b_core_prompt||'GARMENT: Reproduce exact garment from reference image 2 — every design detail, color, and construction accurate.')} ${(t.global||{}).garment_shape_lock||''} ${(t.global||{}).print_lock_angle||''}\nSETTING: clean white studio background.\nAction: standing naturally, arms relaxed, looking slightly off camera. Full body head to toe.\nSoft diffused lighting. Premium D2C fashion brand product photography quality.\nNo text, no overlays, no watermarks.`,
+      prompt: vtoPrompt,
       quality: q, resolution,
+      useVertex: true
     });
   }
 
@@ -228,7 +244,7 @@ export async function changeModel({ productImageBase64, modelImageBase64, qualit
   return await api.multiImageGenerate({
     apiKey,
     images: [modelImageBase64, productImageBase64],
-    prompt: `I am uploading 2 reference images:\n1. Model reference - use this exact woman's face, body structure, skin tone and hair\n2. Product image - reproduce this exact garment on the model in every detail\n\nGenerate a photorealistic studio fashion photograph in 2:3 portrait format.\nCHARACTER: exact woman from reference image 1.\n${(t.b_core_prompt||'GARMENT: Reproduce exact garment from reference image 2 — every design detail, color, and construction accurate.')} ${(t.global||{}).garment_shape_lock||''} ${(t.global||{}).print_lock_angle||''}\nSETTING: clean white studio background.\nAction: standing naturally, arms relaxed, looking slightly off camera. Full body head to toe.\nSoft diffused lighting. Premium D2C fashion brand product photography quality.\nNo text, no overlays, no watermarks.`,
+    prompt: vtoPrompt,
     quality: q,
     size: sz,
   });
@@ -363,7 +379,19 @@ export async function prepareBatchChangeModel({ modelImageBase64, productImageBa
   const settings = await getSettings();
   const model = settings.geminiModel || 'gemini-3.1-flash-image';
   const images = [modelImageBase64, productImageBase64];
-  const prompt = `I am uploading 2 reference images:\n1. Model reference - use this exact woman's face, body structure, skin tone and hair\n2. Product image - reproduce this exact garment on the model in every detail\n\nGenerate a photorealistic studio fashion photograph.\nCHARACTER: exact woman from reference image 1.\n${(t.b_core_prompt||'GARMENT: Reproduce exact garment from reference image 2 — every design detail, color, and construction accurate.')} ${(t.global||{}).garment_shape_lock||''} ${(t.global||{}).print_lock_angle||''}\nSETTING: clean white studio background.\nAction: standing naturally, arms relaxed, looking slightly off camera. Full body head to toe.\nSoft diffused lighting. Premium D2C fashion brand product photography quality.\nNo text, no overlays, no watermarks.`;
+  const prompt = `I am uploading 2 reference images:
+1. MODEL reference - this is the ONLY person to appear in the output. Use their exact face, body structure, skin tone, hair, pose, and background environment. Reference image 1 is the SOLE source for the model's identity and setting.
+Product reference image 2: use this for garment details.
+
+Generate a photorealistic fashion photograph.
+
+CHARACTER: ONLY the exact person from reference image 1.
+CRITICAL BODY PRESERVATION: You MUST strictly preserve the exact body weight, volume, proportions, and shape of the person in reference image 1. Do NOT make the person thinner or alter their natural body type to fit standard fashion model proportions. Their exact physical dimensions must remain identical.
+GARMENT: Reproduce the exact garment from the product reference image(s). EVERY design detail (seams, buttons, zippers, fabric texture), color (hue, saturation, brightness), print pattern (motifs, scale, density), and construction MUST be accurate. DO NOT simplify, reinterpret, or alter any design element.
+RELATIVE SIZING & FIT: You must analyze how tight or loose the garment is on the original product model. You must dynamically scale the garment's physical size up or down so that it has the EXACT SAME relative fit, drape, and tightness on the customer's unique body size. If the garment is form-fitting on the product model, it must be equally form-fitting on the customer, regardless of the difference in their body sizes.
+POSE & BACKGROUND: Copy the EXACT pose, camera angle, and background from reference image 1. The setting must match pixel-perfectly. The model must cast a physically accurate shadow matching the lighting direction of the background.
+Premium D2C fashion brand product photography quality.
+No text, no overlays, no watermarks.`;
   return {
     workflow: 'B',
     label: label || 'Change Model',
@@ -372,6 +400,7 @@ export async function prepareBatchChangeModel({ modelImageBase64, productImageBa
     aspectRatio: getGeminiAspectRatio(resolution || '1080x1440'),
     resolution: resolution || '1080x1440',
     imageSize: getGeminiImageSize(quality, model, resolution),
+    useVertex: true
   };
 }
 

@@ -10,6 +10,10 @@ const { v4: uuidv4 } = require('uuid');
 const { GoogleGenAI } = require('@google/genai');
 const sharp = require('sharp');
 
+const credPath = path.join(__dirname, 'google-credentials.json');
+if (fs.existsSync(credPath)) {
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = credPath;
+}
 const app = express();
 const PORT = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || 'shootai-secret-change-in-production';
@@ -743,16 +747,23 @@ app.post('/api/ai/gemini-generate', requireAuth, requireActive, async (req, res)
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey: googleKey });
+    const ai = req.body.useVertex 
+      ? new GoogleGenAI({ vertexai: {}, project: 'distance-335113', location: 'us-east4' })
+      : new GoogleGenAI({ apiKey: googleKey });
 
     const parts = [];
     for (const img of (images || [])) {
       const data = img.replace(/^data:image\/\w+;base64,/, '');
       const mimeType = img.startsWith('data:image/png') ? 'image/png' : 'image/jpeg';
-      const buffer = Buffer.from(data, 'base64');
-      const blob = new Blob([buffer], { type: mimeType });
-      const uploaded = await ai.files.upload({ file: blob, config: { mimeType, displayName: 'shootai_instant' } });
-      parts.push({ fileData: { fileUri: uploaded.uri, mimeType } });
+      
+      if (req.body.useVertex) {
+        parts.push({ inlineData: { data, mimeType } });
+      } else {
+        const buffer = Buffer.from(data, 'base64');
+        const blob = new Blob([buffer], { type: mimeType });
+        const uploaded = await ai.files.upload({ file: blob, config: { mimeType, displayName: 'shootai_instant' } });
+        parts.push({ fileData: { fileUri: uploaded.uri, mimeType } });
+      }
     }
     parts.push({ text: prompt });
 
@@ -760,6 +771,7 @@ app.post('/api/ai/gemini-generate', requireAuth, requireActive, async (req, res)
     if (modelId === 'gemini-2.0-flash-preview-image-generation' || modelId === 'gemini-3-pro-image') {
       modelId = 'gemini-3.1-flash-image';
     }
+
     const config = { 
       responseModalities: ['IMAGE'],
       candidateCount: 1,
@@ -1441,6 +1453,23 @@ app.post('/api/shopify/vto', async (req, res) => {
     }
   }
 
+  // IP RATE LIMITING (Max 5 per day from Shopify)
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  const ipLimitsFile = path.join(DATA_DIR, 'vto_ip_limits.json');
+  let ipLimits = {};
+  if (fs.existsSync(ipLimitsFile)) {
+    try { ipLimits = JSON.parse(fs.readFileSync(ipLimitsFile, 'utf8')); } catch(e) {}
+  }
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  
+  if (!ipLimits[clientIp] || ipLimits[clientIp].date !== today) {
+    ipLimits[clientIp] = { date: today, count: 0 };
+  }
+  
+  if (ipLimits[clientIp].count >= 5) {
+    return res.status(429).json({ error: 'You have reached the daily limit of 5 virtual try-ons. Please try again tomorrow.' });
+  }
+
   const { customerImageBase64, productImageUrls } = req.body;
   if (!customerImageBase64) return res.status(400).json({ error: 'Missing customer image' });
   if (!productImageUrls || !productImageUrls.length) return res.status(400).json({ error: 'Missing product images' });
@@ -1499,6 +1528,10 @@ No text, no overlays, no watermarks.`;
 
     const b64Output = response.candidates[0].content.parts[0].inlineData.data;
     
+    // IP RATE LIMITING: Only count if generation was successful
+    ipLimits[clientIp].count += 1;
+    fs.writeFileSync(ipLimitsFile, JSON.stringify(ipLimits));
+
     const jobId = Date.now().toString();
     const shopifyDir = path.join(DATA_DIR, 'shopify');
     if (!fs.existsSync(shopifyDir)) fs.mkdirSync(shopifyDir, { recursive: true });
@@ -1565,3 +1598,5 @@ app.listen(PORT, () => {
 });
 
 module.exports = app;
+
+

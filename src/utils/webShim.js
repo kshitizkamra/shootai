@@ -146,8 +146,8 @@ async function geminiPollJob(groupId) {
   return data;
 }
 
-async function geminiGenerate({ model, images, prompt, aspectRatio, imageSize }) {
-  const data = await apiCall('/api/ai/gemini-generate', { model, images, prompt, aspectRatio, imageSize });
+async function geminiGenerate({ model, images, prompt, aspectRatio, imageSize, useVertex }) {
+  const data = await apiCall('/api/ai/gemini-generate', { model, images, prompt, aspectRatio, imageSize, useVertex });
   return data.base64;
 }
 

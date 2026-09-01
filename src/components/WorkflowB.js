@@ -17,6 +17,15 @@ export default function WorkflowB({ onBack, onNavigate }) {
   const [geminiError, setGeminiError] = useState('');
   const skipGeminiRef = useRef(false);
   const [genPhase, setGenPhase] = useState('idle'); // 'idle' | 'preview_done'
+  const [personTab, setPersonTab] = useState('library');
+
+  async function pickPerson() {
+    const path = await window.electronAPI.openFileDialog();
+    if (!path) return;
+    const base64 = await window.electronAPI.readFileAsBase64(path);
+    setSelectedModel({ id: 'upload', name: 'Uploaded Photo', bodyType: 'Custom', base64 });
+    setPersonTab('upload');
+  }
 
   useEffect(() => {
     getModels().then(setModels);
@@ -196,21 +205,53 @@ export default function WorkflowB({ onBack, onNavigate }) {
             )}
 
             <div className="section-title">2. Select Model</div>
-            {models.length === 0 ? (
-              <div className="alert alert-info" style={{ marginBottom: 12 }}>No models yet. Add in Model Library.</div>
-            ) : (
-              <div className="grid-2" style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 16 }}>
-                {models.map(model => (
-                  <div key={model.id} className={`image-card ${selectedModel?.id === model.id ? 'selected' : ''}`}
-                    onClick={() => setSelectedModel(model)} style={{ cursor: 'pointer' }}>
-                    {model.base64 ? <img src={model.base64 || ''} alt={model.name} className="image-card-thumb" />
-                      : <div className="image-card-thumb-placeholder">👤</div>}
-                    <div className="image-card-info">
-                      <div className="image-card-name">{model.name}</div>
-                      <span className="image-card-tag">{model.bodyType}</span>
-                    </div>
+
+            <div className="tabs" style={{ marginBottom: 12 }}>
+              <button
+                className={`tab ${personTab === 'library' ? 'active' : ''}`}
+                onClick={() => setPersonTab('library')}
+              >
+                Model Library
+              </button>
+              <button
+                className={`tab ${personTab === 'upload' ? 'active' : ''}`}
+                onClick={() => setPersonTab('upload')}
+              >
+                Upload Photo
+              </button>
+            </div>
+
+            {personTab === 'library' ? (
+              <>
+                {models.length === 0 ? (
+                  <div className="alert alert-info" style={{ marginBottom: 12 }}>No models yet. Add in Model Library.</div>
+                ) : (
+                  <div className="grid-2" style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 16 }}>
+                    {models.map(model => (
+                      <div key={model.id} className={`image-card ${selectedModel?.id === model.id ? 'selected' : ''}`}
+                        onClick={() => setSelectedModel(model)} style={{ cursor: 'pointer' }}>
+                        {model.base64 ? <img src={model.base64 || ''} alt={model.name} className="image-card-thumb" />
+                          : <div className="image-card-thumb-placeholder">📷</div>}
+                        <div className="image-card-info">
+                          <div className="image-card-name">{model.name}</div>
+                          <span className="image-card-tag">{model.bodyType}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
+              </>
+            ) : (
+              <div className="upload-zone" onClick={pickPerson} style={{ marginBottom: 16 }}>
+                {selectedModel?.id === 'upload' && selectedModel.base64 ? (
+                  <img src={selectedModel.base64} alt="person" className="upload-zone-preview" />
+                ) : (
+                  <>
+                    <span className="upload-zone-icon">📷</span>
+                    <div className="upload-zone-text"><strong>Click to upload</strong></div>
+                    <div className="upload-zone-text" style={{ fontSize: 12 }}>Any photo of a person</div>
+                  </>
+                )}
               </div>
             )}
 

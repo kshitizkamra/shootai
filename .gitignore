@@ -24,3 +24,8 @@ Thumbs.db
 # Data (user data stored on server — prompt_templates.json is intentionally tracked)
 server/data/users.json
 server/data/users/
+
+# GCP Credentials
+server/google-credentials.json
+google-credentials.json
+server/data/vto_ip_limits.json
